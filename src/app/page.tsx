@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { TokenScanner } from '../services/tokenScanner';
 import { fetchTrendingTokens } from '../services/dexScreenerService';
+import TokenDetails from '../components/TokenDetails';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
@@ -11,6 +12,7 @@ export default function Home() {
   const [trendingTokens, setTrendingTokens] = useState<any[]>([]);
   const [isLoadingTrending, setIsLoadingTrending] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [selectedToken, setSelectedToken] = useState<string | null>(null);
 
   useEffect(() => {
     const loadTrendingTokens = async () => {
@@ -34,22 +36,8 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleScan = async () => {
-    if (!tokenAddress.trim()) {
-      alert('Please enter a token address');
-      return;
-    }
-    
-    setIsLoading(true);
-    try {
-      const scanner = new TokenScanner();
-      const result = await scanner.scanToken(tokenAddress);
-      setScanResult(result);
-    } catch (error) {
-      console.error('Error:', error);
-      setScanResult({ isSecure: false, reasons: ['Error scanning token'], score: 0 });
-    }
-    setIsLoading(false);
+  const handleScan = async (address: string) => {
+    setSelectedToken(address);
   };
 
   return (
@@ -112,7 +100,7 @@ export default function Home() {
                       {token.priceChange24h.toFixed(2)}% (24h)
                     </p>
                     <button
-                      onClick={() => setTokenAddress(token.address)}
+                      onClick={() => handleScan(token.address)}
                       className="mt-2 px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm transition-colors"
                     >
                       Scan Token
@@ -138,7 +126,7 @@ export default function Home() {
           </div>
           
           <button
-            onClick={handleScan}
+            onClick={() => handleScan(tokenAddress)}
             disabled={isLoading}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded disabled:opacity-50 transition-colors"
           >
@@ -167,6 +155,14 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* Add the TokenDetails modal */}
+      {selectedToken && (
+        <TokenDetails
+          tokenAddress={selectedToken}
+          onClose={() => setSelectedToken(null)}
+        />
+      )}
     </main>
   );
 } 
