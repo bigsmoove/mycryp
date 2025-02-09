@@ -87,10 +87,24 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
     return tokens
       .filter((token): token is TrendingToken => 
         token !== null &&
-        token.liquidity >= 50000 && // Min $50k liquidity
-        token.volume24h >= 10000    // Min $10k daily volume
+        token.liquidity >= 50000 && // Strict $50k min liquidity for safety
+        token.volume24h >= 10000 && // Minimum $10k daily volume for real activity
+        token.priceChange24h > 0 && // Only positive momentum
+        token.volume24h / token.liquidity > 0.5 // Healthy volume/liquidity ratio
       )
-      .sort((a, b) => b.volume24h - a.volume24h);
+      .sort((a, b) => {
+        // Scoring system prioritizing safety and momentum
+        const getScore = (t: TrendingToken) => {
+          const volumeScore = t.volume24h / t.liquidity; // Trading activity health
+          const momentumScore = t.priceChange24h; // Price momentum
+          const liquidityScore = Math.min(t.liquidity / 100000, 1); // Cap at 100k
+          
+          // Weight: 40% volume ratio, 30% momentum, 30% liquidity
+          return (volumeScore * 0.4) + (momentumScore * 0.3) + (liquidityScore * 0.3);
+        };
+        return getScore(b) - getScore(a);
+      })
+      .slice(0, 15); // Show top 15 tokens
 
   } catch (error) {
     if (axios.isAxiosError(error)) {
