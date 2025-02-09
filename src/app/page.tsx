@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react';
 import { TokenScanner } from '../services/tokenScanner';
 import { fetchTrendingTokens } from '../services/dexScreenerService';
 import TokenDetails from '../components/TokenDetails';
+import type { TrendingToken } from '../types/token';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
   const [scanResult, setScanResult] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [trendingTokens, setTrendingTokens] = useState<any[]>([]);
+  const [trendingTokens, setTrendingTokens] = useState<TrendingToken[]>([]);
   const [isLoadingTrending, setIsLoadingTrending] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
@@ -38,6 +39,58 @@ export default function Home() {
 
   const handleScan = async (address: string) => {
     setSelectedToken(address);
+  };
+
+  const TrendingTokenCard = ({ token }: { token: TrendingToken }) => {
+    return (
+      <div className="p-4 bg-gray-800 rounded-lg">
+        <div className="flex justify-between items-start mb-2">
+          <div>
+            <h3 className="text-lg font-semibold">{token.name} ({token.symbol})</h3>
+            <p className="text-sm text-gray-400">Price: ${token.price.toFixed(8)}</p>
+          </div>
+          <div className="text-right">
+            <p className={`text-lg font-bold ${
+              token.priceChange24h >= 0 ? 'text-green-500' : 'text-red-500'
+            }`}>
+              {token.priceChange24h.toFixed(2)}% (24h)
+            </p>
+          </div>
+        </div>
+
+        {/* Indicators */}
+        <div className="grid grid-cols-3 gap-2 mb-2 text-sm">
+          <div className="bg-gray-700 p-2 rounded">
+            <p className="text-gray-400">Vol/Liq</p>
+            <p className="font-semibold">{token.indicators?.volumeToLiquidityRatio}</p>
+          </div>
+          <div className="bg-gray-700 p-2 rounded">
+            <p className="text-gray-400">Buy Pressure</p>
+            <p className="font-semibold">{token.indicators?.buyPressure}</p>
+          </div>
+          <div className="bg-gray-700 p-2 rounded">
+            <p className="text-gray-400">Momentum</p>
+            <p className="font-semibold">{token.indicators?.priceAcceleration}</p>
+          </div>
+        </div>
+
+        {/* Alerts */}
+        {token.alerts && token.alerts.length > 0 && (
+          <div className="mt-2">
+            {token.alerts.map((alert: string, index: number) => (
+              <div key={index} className="text-sm text-yellow-400 mb-1">
+                {alert}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-2 text-sm text-gray-400">
+          <p>Volume 24h: ${token.volume24h.toLocaleString()}</p>
+          <p>Liquidity: ${token.liquidity.toLocaleString()}</p>
+        </div>
+      </div>
+    );
   };
 
   return (

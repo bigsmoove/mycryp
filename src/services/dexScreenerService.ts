@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { DEXSCREENER_API } from '../config/constants';
-import { TokenScanner } from '../services/tokenScanner';
+import { ALERT_THRESHOLDS } from '../config/constants';
+import { TrendingToken } from '../types/token';
 
 interface TokenProfile {
   tokenAddress: string;
@@ -13,29 +14,6 @@ interface TokenProfile {
     label?: string;
     url: string;
   }>;
-}
-
-interface TrendingToken {
-  address: string;
-  name: string;
-  symbol: string;
-  price: number;
-  volume24h: number;
-  priceChange24h: number;
-  liquidity: number;
-  dexId?: string;
-  pairAddress?: string;
-  icon?: string;
-  description?: string;
-  links?: Array<{
-    type?: string;
-    label?: string;
-    url: string;
-  }>;
-  buyRatio?: number;      // Ratio of buys to total transactions
-  priceChange1h?: number; // 1h price change for faster signals
-  volumeChange?: number;  // Volume change vs previous period
-  txCount?: number;       // Transaction count
 }
 
 interface TokenMetrics extends TrendingToken {
@@ -130,8 +108,10 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
 
       // Enhanced safety and momentum checks
       const safetyCheck = 
-        token.liquidity >= 25000 && // Minimum $25k liquidity
-        token.volume24h >= 5000;    // Minimum $5k daily volume
+        token.liquidity >= ALERT_THRESHOLDS.MIN_LIQUIDITY &&
+        token.volume24h >= ALERT_THRESHOLDS.MIN_VOLUME;
+
+      if (!safetyCheck) continue;
 
       // Momentum indicators
       const volumeToLiquidityRatio = token.volume24h / token.liquidity;
@@ -143,14 +123,29 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
         buyPressure > 0.5 &&            // More buys than sells
         priceAcceleration > 1.0;        // Price gaining momentum
 
-      if (safetyCheck && momentumCheck) {
+      if (momentumCheck) {
         // Calculate comprehensive score
+        const { WEIGHTS } = ALERT_THRESHOLDS;
         const score = (
-          (volumeToLiquidityRatio * 30) +     // Volume/Liquidity ratio (30%)
-          (buyPressure * 25) +                 // Buy pressure (25%)
-          (priceAcceleration * 25) +           // Price momentum (25%)
-          (Math.min(token.priceChange24h, 100) * 0.2) // Price performance (20%)
+          (volumeToLiquidityRatio * WEIGHTS.VOLUME_LIQUIDITY) +
+          (buyPressure * WEIGHTS.BUY_PRESSURE) +
+          (priceAcceleration * WEIGHTS.PRICE_MOMENTUM) +
+          (Math.min(token.priceChange24h, 100) * WEIGHTS.PERFORMANCE / 100)
         );
+
+        const alerts: string[] = [];
+        
+        if (volumeToLiquidityRatio > ALERT_THRESHOLDS.VOLUME_SPIKE) {
+          alerts.push('🚨 Volume Spike Alert');
+        }
+        
+        if (buyPressure > ALERT_THRESHOLDS.BUY_PRESSURE) {
+          alerts.push('💫 Strong Buy Pressure');
+        }
+        
+        if (priceAcceleration > ALERT_THRESHOLDS.PRICE_ACCELERATION) {
+          alerts.push('🚀 Price Acceleration');
+        }
 
         filteredTokens.push({
           ...token,
@@ -158,8 +153,12 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
           indicators: {
             volumeToLiquidityRatio: volumeToLiquidityRatio.toFixed(2),
             buyPressure: buyPressure.toFixed(2),
-            priceAcceleration: priceAcceleration.toFixed(2)
-          }
+            priceAcceleration: priceAcceleration.toFixed(2),
+            volumeSpike: volumeToLiquidityRatio > ALERT_THRESHOLDS.VOLUME_SPIKE,
+            buyPressureSurge: buyPressure > ALERT_THRESHOLDS.BUY_PRESSURE,
+            priceAccelerationAlert: priceAcceleration > ALERT_THRESHOLDS.PRICE_ACCELERATION
+          },
+          alerts
         });
       }
     }
