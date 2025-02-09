@@ -1,101 +1,172 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { TokenScanner } from '../services/tokenScanner';
+import { fetchTrendingTokens } from '../services/dexScreenerService';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [tokenAddress, setTokenAddress] = useState('');
+  const [scanResult, setScanResult] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [trendingTokens, setTrendingTokens] = useState<any[]>([]);
+  const [isLoadingTrending, setIsLoadingTrending] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  useEffect(() => {
+    const loadTrendingTokens = async () => {
+      setIsLoadingTrending(true);
+      setApiError(null);
+      try {
+        const tokens = await fetchTrendingTokens();
+        if (tokens.length === 0) {
+          setApiError('No trending tokens found. Please try again later.');
+        }
+        setTrendingTokens(tokens);
+      } catch (error) {
+        setApiError('Unable to fetch trending tokens. Please try again later.');
+        console.error('Error loading trending tokens:', error);
+      }
+      setIsLoadingTrending(false);
+    };
+
+    loadTrendingTokens();
+    const interval = setInterval(loadTrendingTokens, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleScan = async () => {
+    if (!tokenAddress.trim()) {
+      alert('Please enter a token address');
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      const scanner = new TokenScanner();
+      const result = await scanner.scanToken(tokenAddress);
+      setScanResult(result);
+    } catch (error) {
+      console.error('Error:', error);
+      setScanResult({ isSecure: false, reasons: ['Error scanning token'], score: 0 });
+    }
+    setIsLoading(false);
+  };
+
+  return (
+    <main className="min-h-screen p-8 bg-gray-900">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-white mb-8">
+          Solana Token Safety Scanner
+        </h1>
+
+        {/* Trending Tokens Section */}
+        <div className="mb-8 bg-gray-800 p-6 rounded-lg shadow-lg">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-white">Trending Tokens</h2>
+            <span className="text-sm text-gray-400">
+              Auto-refreshes every 30s
+            </span>
+          </div>
+          
+          {apiError ? (
+            <div className="text-red-400 p-4 rounded bg-red-900/20 text-center">
+              {apiError}
+              <button 
+                onClick={() => window.location.reload()}
+                className="ml-4 underline hover:text-red-300"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoadingTrending ? (
+            <div className="text-white flex items-center justify-center p-4">
+              <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Loading trending tokens...
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {trendingTokens.map((token) => (
+                <div 
+                  key={token.address}
+                  className="bg-gray-700 p-4 rounded-lg flex justify-between items-center hover:bg-gray-600 transition-colors"
+                >
+                  <div>
+                    <h3 className="text-white font-bold">{token.name} ({token.symbol})</h3>
+                    <div className="space-y-1">
+                      <p className="text-gray-300 text-sm">
+                        Price: ${token.price.toFixed(6)}
+                      </p>
+                      <p className="text-gray-300 text-sm">
+                        Volume 24h: ${token.volume24h.toLocaleString()}
+                      </p>
+                      <p className="text-gray-300 text-sm">
+                        Liquidity: ${token.liquidity.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-sm font-bold ${token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {token.priceChange24h.toFixed(2)}% (24h)
+                    </p>
+                    <button
+                      onClick={() => setTokenAddress(token.address)}
+                      className="mt-2 px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm transition-colors"
+                    >
+                      Scan Token
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        {/* Scanner Section */}
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+          <h2 className="text-xl font-bold text-white mb-4">Token Scanner</h2>
+          <div className="mb-4">
+            <input
+              type="text"
+              value={tokenAddress}
+              onChange={(e) => setTokenAddress(e.target.value)}
+              placeholder="Enter token address"
+              className="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+          
+          <button
+            onClick={handleScan}
+            disabled={isLoading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded disabled:opacity-50 transition-colors"
+          >
+            {isLoading ? 'Scanning...' : 'Scan Token'}
+          </button>
+
+          {scanResult && (
+            <div className="mt-6 p-4 rounded bg-gray-700">
+              <div className={`text-xl font-bold mb-2 ${
+                scanResult.isSecure ? 'text-green-400' : 'text-red-400'
+              }`}>
+                Safety Score: {scanResult.score}/100
+              </div>
+              
+              {scanResult.reasons.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-white font-bold mb-2">Warnings:</h3>
+                  <ul className="list-disc pl-5 text-red-300">
+                    {scanResult.reasons.map((reason: string, index: number) => (
+                      <li key={index}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
   );
-}
+} 
