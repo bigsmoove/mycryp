@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { DEXSCREENER_API } from '../config/constants';
+import { TokenScanner } from '../services/tokenScanner';
 
 interface TokenProfile {
   tokenAddress: string;
@@ -31,6 +32,16 @@ interface TrendingToken {
     label?: string;
     url: string;
   }>;
+  buyRatio?: number;      // Ratio of buys to total transactions
+  priceChange1h?: number; // 1h price change for faster signals
+  volumeChange?: number;  // Volume change vs previous period
+  txCount?: number;       // Transaction count
+}
+
+interface TokenMetrics extends TrendingToken {
+  hourlyAcceleration?: number;
+  volumeAcceleration?: number;
+  isEarlyPhase?: boolean;
 }
 
 export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
@@ -50,18 +61,39 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
       profile.chainId === 'solana' && profile.tokenAddress
     ).slice(0, 10); // Take only first 10 to reduce API calls
 
+    console.log('Solana Profiles:', solanaProfiles); // Debug log
+
     // Get pair data for each token
     const tokens = await Promise.all(
       solanaProfiles.map(async (profile: TokenProfile) => {
         try {
-          // Get token pairs data
+          // Use the correct endpoint format from DexScreener docs
           const pairsResponse = await axios.get(
-            `${DEXSCREENER_API}/token-pairs/v1/solana/${profile.tokenAddress}`
+            `${DEXSCREENER_API}/latest/dex/tokens/${profile.tokenAddress}`
           );
 
-          if (!pairsResponse.data?.[0]) return null;
+          console.log(`Pairs data for ${profile.tokenAddress}:`, pairsResponse.data);
 
-          const pair = pairsResponse.data[0];
+          if (!pairsResponse.data?.pairs) return null;
+
+          const pair = pairsResponse.data.pairs[0];
+          
+          // Calculate acceleration metrics
+          const hourlyAcceleration = pair.priceChange?.h1 
+            ? (pair.priceChange.h1 / (pair.priceChange.h24 / 24))
+            : 0;
+          
+          const volumeAcceleration = pair.volume?.h1 
+            ? (pair.volume.h1 * 24) / (pair.volume.h24 || 1)
+            : 0;
+
+          // Determine if token is in early phase
+          const isEarlyPhase = 
+            hourlyAcceleration > 1.5 && // Price moving faster recently
+            volumeAcceleration > 1.2 && // Volume increasing
+            pair.priceChange?.h24 < 50 && // Not already pumped too much
+            (pair.txns?.h24?.buys ?? 0) > (pair.txns?.h24?.sells ?? 0); // More buys than sells
+
           return {
             address: profile.tokenAddress,
             name: pair.baseToken?.name || profile.name || 'Unknown',
@@ -74,7 +106,13 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
             pairAddress: pair.pairAddress,
             icon: profile.icon,
             description: profile.description,
-            links: profile.links
+            links: profile.links,
+            hourlyAcceleration,
+            volumeAcceleration,
+            isEarlyPhase,
+            buyRatio: pair.txns?.h24?.buys 
+              ? pair.txns.h24.buys / (pair.txns.h24.buys + pair.txns.h24.sells) 
+              : 0
           };
         } catch (error) {
           console.error(`Error fetching pair data for ${profile.tokenAddress}:`, error);
@@ -83,39 +121,58 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
       })
     );
 
-    // Filter out nulls and sort by volume
-    return tokens
-      .filter((token): token is TrendingToken => 
-        token !== null &&
-        token.liquidity >= 50000 && // Strict $50k min liquidity for safety
-        token.volume24h >= 10000 && // Minimum $10k daily volume for real activity
-        token.priceChange24h > 0 && // Only positive momentum
-        token.volume24h / token.liquidity > 0.5 // Healthy volume/liquidity ratio
-      )
-      .sort((a, b) => {
-        // Scoring system prioritizing safety and momentum
-        const getScore = (t: TrendingToken) => {
-          const volumeScore = t.volume24h / t.liquidity; // Trading activity health
-          const momentumScore = t.priceChange24h; // Price momentum
-          const liquidityScore = Math.min(t.liquidity / 100000, 1); // Cap at 100k
-          
-          // Weight: 40% volume ratio, 30% momentum, 30% liquidity
-          return (volumeScore * 0.4) + (momentumScore * 0.3) + (liquidityScore * 0.3);
-        };
-        return getScore(b) - getScore(a);
-      })
-      .slice(0, 15); // Show top 15 tokens
+    console.log('Processed tokens:', tokens); // Debug log
+
+    // Filter and process tokens
+    const filteredTokens = [];
+    for (const token of tokens) {
+      if (!token) continue;
+
+      // Enhanced safety and momentum checks
+      const safetyCheck = 
+        token.liquidity >= 25000 && // Minimum $25k liquidity
+        token.volume24h >= 5000;    // Minimum $5k daily volume
+
+      // Momentum indicators
+      const volumeToLiquidityRatio = token.volume24h / token.liquidity;
+      const buyPressure = token.buyRatio ?? 0;
+      const priceAcceleration = token.hourlyAcceleration ?? 0;
+
+      const momentumCheck =
+        volumeToLiquidityRatio > 0.3 && // Healthy trading volume
+        buyPressure > 0.5 &&            // More buys than sells
+        priceAcceleration > 1.0;        // Price gaining momentum
+
+      if (safetyCheck && momentumCheck) {
+        // Calculate comprehensive score
+        const score = (
+          (volumeToLiquidityRatio * 30) +     // Volume/Liquidity ratio (30%)
+          (buyPressure * 25) +                 // Buy pressure (25%)
+          (priceAcceleration * 25) +           // Price momentum (25%)
+          (Math.min(token.priceChange24h, 100) * 0.2) // Price performance (20%)
+        );
+
+        filteredTokens.push({
+          ...token,
+          score,
+          indicators: {
+            volumeToLiquidityRatio: volumeToLiquidityRatio.toFixed(2),
+            buyPressure: buyPressure.toFixed(2),
+            priceAcceleration: priceAcceleration.toFixed(2)
+          }
+        });
+      }
+    }
+
+    console.log('Filtered tokens:', filteredTokens);
+
+    // Sort by score and return
+    return filteredTokens
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, 5);
 
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error('DexScreener API Error:', {
-        status: error.response?.status,
-        message: error.message,
-        url: error.config?.url
-      });
-    } else {
-      console.error('Error fetching trending tokens:', error);
-    }
+    console.error('Error in fetchTrendingTokens:', error);
     return [];
   }
 };
@@ -123,17 +180,16 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
 // Get specific token details
 export const getTokenDetails = async (tokenAddress: string): Promise<any> => {
   try {
-    const [tokenData, pairsData] = await Promise.all([
-      axios.get(`${DEXSCREENER_API}/tokens/v1/solana/${tokenAddress}`),
-      axios.get(`${DEXSCREENER_API}/token-pairs/v1/solana/${tokenAddress}`)
-    ]);
+    const pairsData = await axios.get(
+      `${DEXSCREENER_API}/latest/dex/tokens/${tokenAddress}`
+    );
 
-    if (!tokenData.data?.[0]) {
+    if (!pairsData.data?.pairs) {
       throw new Error('No token data found');
     }
 
-    const mainPair = tokenData.data[0];
-    const allPairs = pairsData.data || [];
+    const mainPair = pairsData.data.pairs[0];
+    const allPairs = pairsData.data.pairs;
 
     return {
       baseToken: mainPair.baseToken,
@@ -171,14 +227,13 @@ export const getTokenDetails = async (tokenAddress: string): Promise<any> => {
 // Get token pairs/pools
 export const getTokenPairs = async (tokenAddress: string): Promise<any> => {
   try {
-    // According to docs: GET /token-pairs/v1/{chainId}/{tokenAddress}
     const response = await axios.get(
-      `${DEXSCREENER_API}/token-pairs/v1/solana/${tokenAddress}`
+      `${DEXSCREENER_API}/latest/dex/tokens/${tokenAddress}`
     );
-    return response.data;
+    return response.data?.pairs || [];
   } catch (error) {
     console.error('Error fetching token pairs:', error);
-    return null;
+    return [];
   }
 };
 
