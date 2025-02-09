@@ -7,6 +7,28 @@ export interface TokenIndicators {
   priceAccelerationAlert?: boolean;
 }
 
+export type SignalStrength = 'STRONG_BUY' | 'MODERATE_BUY' | 'HOLD' | 'CONSIDER_SELL' | 'STRONG_SELL';
+
+export interface TradingSignal {
+  signal: SignalStrength;
+  confidence: number;
+  reasons: string[];
+  indicators: {
+    buyPressure: {
+      value: number;
+      trend: 'up' | 'down' | 'neutral';
+    };
+    volumeMetric: {
+      value: number;
+      trend: 'up' | 'down' | 'neutral';
+    };
+    priceMovement: {
+      value: number;
+      trend: 'up' | 'down' | 'neutral';
+    };
+  };
+}
+
 export interface TrendingToken {
   address: string;
   name: string;
@@ -27,4 +49,5 @@ export interface TrendingToken {
   indicators?: TokenIndicators;
   alerts?: string[];
   score?: number;
+  tradingSignal?: TradingSignal;
 } 

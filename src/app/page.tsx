@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { TokenScanner } from '../services/tokenScanner';
 import { fetchTrendingTokens } from '../services/dexScreenerService';
 import TokenDetails from '../components/TokenDetails';
-import type { TrendingToken } from '../types/token';
+import type { TrendingToken, SignalStrength } from '../types/token';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
@@ -42,52 +42,105 @@ export default function Home() {
   };
 
   const TrendingTokenCard = ({ token }: { token: TrendingToken }) => {
+    const getSignalColor = (signal: SignalStrength) => {
+      switch (signal) {
+        case 'STRONG_BUY': return 'bg-green-500';
+        case 'MODERATE_BUY': return 'bg-green-300';
+        case 'HOLD': return 'bg-yellow-400';
+        case 'CONSIDER_SELL': return 'bg-red-300';
+        case 'STRONG_SELL': return 'bg-red-500';
+        default: return 'bg-gray-400';
+      }
+    };
+
+    const getTrendArrow = (trend: 'up' | 'down' | 'neutral') => {
+      switch (trend) {
+        case 'up': return '↑';
+        case 'down': return '↓';
+        case 'neutral': return '→';
+      }
+    };
+
     return (
       <div className="p-4 bg-gray-800 rounded-lg">
-        <div className="flex justify-between items-start mb-2">
+        {/* Token Header */}
+        <div className="flex justify-between items-start mb-4">
           <div>
             <h3 className="text-lg font-semibold">{token.name} ({token.symbol})</h3>
             <p className="text-sm text-gray-400">Price: ${token.price.toFixed(8)}</p>
           </div>
-          <div className="text-right">
-            <p className={`text-lg font-bold ${
-              token.priceChange24h >= 0 ? 'text-green-500' : 'text-red-500'
+          
+          {/* Trading Signal Badge */}
+          {token.tradingSignal && (
+            <div className={`px-3 py-1 rounded-full text-white text-sm font-bold ${
+              getSignalColor(token.tradingSignal.signal)
             }`}>
-              {token.priceChange24h.toFixed(2)}% (24h)
+              {token.tradingSignal.signal.replace('_', ' ')}
+            </div>
+          )}
+        </div>
+
+        {/* Key Metrics Grid */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {/* Buy Pressure */}
+          <div className="bg-gray-700 p-2 rounded">
+            <div className="flex justify-between items-center text-sm text-gray-400">
+              <span>Buy Pressure</span>
+              {token.tradingSignal && (
+                <span>{getTrendArrow(token.tradingSignal.indicators.buyPressure.trend)}</span>
+              )}
+            </div>
+            <p className="font-semibold">
+              {(token.tradingSignal?.indicators.buyPressure.value ?? 0).toFixed(2)}
+            </p>
+          </div>
+
+          {/* Volume Metric */}
+          <div className="bg-gray-700 p-2 rounded">
+            <div className="flex justify-between items-center text-sm text-gray-400">
+              <span>Vol/Liq Ratio</span>
+              {token.tradingSignal && (
+                <span>{getTrendArrow(token.tradingSignal.indicators.volumeMetric.trend)}</span>
+              )}
+            </div>
+            <p className="font-semibold">
+              {(token.tradingSignal?.indicators.volumeMetric.value ?? 0).toFixed(2)}
+            </p>
+          </div>
+
+          {/* Price Movement */}
+          <div className="bg-gray-700 p-2 rounded">
+            <div className="flex justify-between items-center text-sm text-gray-400">
+              <span>Price Momentum</span>
+              {token.tradingSignal && (
+                <span>{getTrendArrow(token.tradingSignal.indicators.priceMovement.trend)}</span>
+              )}
+            </div>
+            <p className="font-semibold">
+              {(token.tradingSignal?.indicators.priceMovement.value ?? 0).toFixed(2)}
             </p>
           </div>
         </div>
 
-        {/* Indicators */}
-        <div className="grid grid-cols-3 gap-2 mb-2 text-sm">
-          <div className="bg-gray-700 p-2 rounded">
-            <p className="text-gray-400">Vol/Liq</p>
-            <p className="font-semibold">{token.indicators?.volumeToLiquidityRatio}</p>
-          </div>
-          <div className="bg-gray-700 p-2 rounded">
-            <p className="text-gray-400">Buy Pressure</p>
-            <p className="font-semibold">{token.indicators?.buyPressure}</p>
-          </div>
-          <div className="bg-gray-700 p-2 rounded">
-            <p className="text-gray-400">Momentum</p>
-            <p className="font-semibold">{token.indicators?.priceAcceleration}</p>
-          </div>
-        </div>
-
-        {/* Alerts */}
-        {token.alerts && token.alerts.length > 0 && (
-          <div className="mt-2">
-            {token.alerts.map((alert: string, index: number) => (
-              <div key={index} className="text-sm text-yellow-400 mb-1">
-                {alert}
-              </div>
+        {/* Signal Reasons */}
+        {token.tradingSignal?.reasons.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {token.tradingSignal.reasons.map((reason, index) => (
+              <p key={index} className="text-sm text-gray-300">• {reason}</p>
             ))}
           </div>
         )}
 
-        <div className="mt-2 text-sm text-gray-400">
+        {/* Token Stats */}
+        <div className="mt-4 grid grid-cols-2 gap-2 text-sm text-gray-400">
           <p>Volume 24h: ${token.volume24h.toLocaleString()}</p>
           <p>Liquidity: ${token.liquidity.toLocaleString()}</p>
+          <p>Price Change: 
+            <span className={token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}>
+              {token.priceChange24h.toFixed(2)}%
+            </span>
+          </p>
+          <p>Confidence: {token.tradingSignal?.confidence ?? 0}%</p>
         </div>
       </div>
     );
