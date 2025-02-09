@@ -1,6 +1,19 @@
 import axios from 'axios';
 import { DEXSCREENER_API } from '../config/constants';
 
+interface TokenProfile {
+  tokenAddress: string;
+  name?: string;
+  symbol?: string;
+  description?: string;
+  icon?: string;
+  links?: Array<{
+    type?: string;
+    label?: string;
+    url: string;
+  }>;
+}
+
 interface TrendingToken {
   address: string;
   name: string;
@@ -9,52 +22,77 @@ interface TrendingToken {
   volume24h: number;
   priceChange24h: number;
   liquidity: number;
+  dexId?: string;
+  pairAddress?: string;
+  icon?: string;
+  description?: string;
+  links?: Array<{
+    type?: string;
+    label?: string;
+    url: string;
+  }>;
 }
 
 export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
   try {
-    // First get boosted/trending tokens
-    const boostResponse = await axios.get(`${DEXSCREENER_API}/token-boosts/latest/v1`);
-    const solanaBoosts = boostResponse.data.filter((boost: any) => boost.chainId === 'solana');
+    console.log('Fetching trending tokens...');
+    // Get trending token profiles
+    const response = await axios.get(`${DEXSCREENER_API}/token-profiles/latest/v1`);
     
-    // Get token details for each boosted token
-    const tokenDetails = await Promise.all(
-      solanaBoosts.map(async (boost: any) => {
+    console.log('API Response:', response.data);
+
+    if (!response.data) {
+      console.warn('No data received from DexScreener');
+      return [];
+    }
+
+    // Filter for Solana tokens
+    const solanaProfiles = response.data.filter((profile: TokenProfile) => 
+      profile.chainId === 'solana'
+    );
+
+    // Get pair data for each token
+    const tokens = await Promise.all(
+      solanaProfiles.map(async (profile: TokenProfile) => {
         try {
-          // According to docs: GET /tokens/v1/{chainId}/{tokenAddresses}
-          const response = await axios.get(
-            `${DEXSCREENER_API}/tokens/v1/solana/${boost.tokenAddress}`
+          // Use correct endpoint from docs
+          const pairResponse = await axios.get(
+            `${DEXSCREENER_API}/latest/dex/pairs/solana/${profile.tokenAddress}`
           );
-          
-          if (response.data && response.data[0]) {
-            const pair = response.data[0];
-            return {
-              address: pair.baseToken.address,
-              name: pair.baseToken.name,
-              symbol: pair.baseToken.symbol,
-              price: parseFloat(pair.priceUsd) || 0,
-              volume24h: pair.volume?.h24 || 0,
-              priceChange24h: pair.priceChange?.h24 || 0,
-              liquidity: pair.liquidity?.usd || 0,
-              boostAmount: boost.amount || 0
-            };
-          }
+
+          if (!pairResponse.data?.pairs?.[0]) return null;
+
+          const pair = pairResponse.data.pairs[0];
+          return {
+            address: profile.tokenAddress,
+            name: pair.baseToken.name || profile.name || 'Unknown',
+            symbol: pair.baseToken.symbol || profile.symbol || 'Unknown',
+            price: parseFloat(pair.priceUsd) || 0,
+            volume24h: pair.volume?.h24 || 0,
+            priceChange24h: pair.priceChange?.h24 || 0,
+            liquidity: pair.liquidity?.usd || 0,
+            dexId: pair.dexId,
+            pairAddress: pair.pairAddress,
+            icon: profile.icon,
+            description: profile.description,
+            links: profile.links
+          };
         } catch (error) {
-          console.error(`Error fetching token details for ${boost.tokenAddress}:`, error);
+          console.error(`Error fetching pair data for ${profile.tokenAddress}:`, error);
+          return null;
         }
-        return null;
       })
     );
 
-    // Filter out null results and sort by boost amount
-    return tokenDetails
-      .filter((token): token is TrendingToken => token !== null)
-      .filter(token => 
-        token.liquidity > 50000 && // Min $50k liquidity
-        token.volume24h > 10000    // Min $10k daily volume
+    // Filter out nulls and sort by volume
+    return tokens
+      .filter((token): token is TrendingToken => 
+        token !== null &&
+        token.liquidity >= 50000 && // Min $50k liquidity
+        token.volume24h >= 10000    // Min $10k daily volume
       )
       .sort((a, b) => b.volume24h - a.volume24h)
-      .slice(0, 10); // Top 10 tokens
+      .slice(0, 10);
 
   } catch (error) {
     if (axios.isAxiosError(error)) {
@@ -73,14 +111,48 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
 // Get specific token details
 export const getTokenDetails = async (tokenAddress: string): Promise<any> => {
   try {
-    // According to docs: GET /tokens/v1/{chainId}/{tokenAddresses}
-    const response = await axios.get(
-      `${DEXSCREENER_API}/tokens/v1/solana/${tokenAddress}`
-    );
-    return response.data[0];
+    const [tokenData, pairsData] = await Promise.all([
+      axios.get(`${DEXSCREENER_API}/tokens/v1/solana/${tokenAddress}`),
+      axios.get(`${DEXSCREENER_API}/token-pairs/v1/solana/${tokenAddress}`)
+    ]);
+
+    if (!tokenData.data?.[0]) {
+      throw new Error('No token data found');
+    }
+
+    const mainPair = tokenData.data[0];
+    const allPairs = pairsData.data || [];
+
+    return {
+      baseToken: mainPair.baseToken,
+      priceUsd: mainPair.priceUsd || '0',
+      priceChange: mainPair.priceChange || { h24: 0 },
+      volume: mainPair.volume || { h24: 0 },
+      liquidity: mainPair.liquidity || { usd: 0 },
+      txns: mainPair.txns || { h24: { buys: 0, sells: 0 } },
+      pairs: allPairs,
+      marketCap: mainPair.fdv || 0,
+      totalVolume: allPairs.reduce((sum: number, pair: any) => 
+        sum + (pair.volume?.h24 || 0), 0
+      ),
+      totalLiquidity: allPairs.reduce((sum: number, pair: any) => 
+        sum + (pair.liquidity?.usd || 0), 0
+      )
+    };
   } catch (error) {
     console.error('Error fetching token details:', error);
-    return null;
+    return {
+      baseToken: { name: 'Unknown', symbol: 'Unknown' },
+      priceUsd: '0',
+      priceChange: { h24: 0 },
+      volume: { h24: 0 },
+      liquidity: { usd: 0 },
+      txns: { h24: { buys: 0, sells: 0 } },
+      pairs: [],
+      marketCap: 0,
+      totalVolume: 0,
+      totalLiquidity: 0
+    };
   }
 };
 
@@ -95,5 +167,35 @@ export const getTokenPairs = async (tokenAddress: string): Promise<any> => {
   } catch (error) {
     console.error('Error fetching token pairs:', error);
     return null;
+  }
+};
+
+// Update the getTokenHistory function to use available data
+export const getTokenHistory = async (tokenAddress: string): Promise<any[]> => {
+  try {
+    // Get all pairs for the token
+    const pairs = await getTokenPairs(tokenAddress);
+    if (!pairs?.[0]) return [];
+
+    // Use the first pair's price data
+    const mainPair = pairs[0];
+    
+    // Create a simple price history from available data
+    const now = Date.now();
+    const history = [
+      {
+        time: new Date(now - 24 * 60 * 60 * 1000).toISOString(), // 24h ago
+        value: parseFloat(mainPair.priceUsd) / (1 + (mainPair.priceChange?.h24 || 0) / 100)
+      },
+      {
+        time: new Date(now).toISOString(), // current
+        value: parseFloat(mainPair.priceUsd)
+      }
+    ];
+
+    return history;
+  } catch (error) {
+    console.error('Error creating token history:', error);
+    return [];
   }
 }; 

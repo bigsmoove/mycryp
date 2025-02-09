@@ -1,5 +1,5 @@
 export const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
-export const DEXSCREENER_API = 'https://api.dexscreener.com';
+export const DEXSCREENER_API = 'https://api.dexscreener.com/';
 
 export const SAFETY_THRESHOLDS = {
   MIN_LIQUIDITY_SOL: 50, // Minimum liquidity in SOL
