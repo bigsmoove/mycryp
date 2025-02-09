@@ -64,26 +64,26 @@ export const ALERT_THRESHOLDS = {
 export const TRADING_SIGNALS = {
   BUY: {
     STRONG: {
-      BUY_PRESSURE: 0.7,    // 70% buys
-      VOLUME_SPIKE: 3,      // 3x volume/liquidity
-      PRICE_ACCEL: 2.0,     // Price moving 2x faster than average
+      BUY_PRESSURE: 0.65,    // Lower from 0.7 - catch uptrends earlier
+      VOLUME_SPIKE: 2.5,     // Lower from 3 
+      PRICE_ACCEL: 1.5,      // Lower from 2.0
     },
     MODERATE: {
-      BUY_PRESSURE: 0.6,    // 60% buys
-      VOLUME_SPIKE: 2,      // 2x volume/liquidity
-      PRICE_ACCEL: 1.5,     // 1.5x price acceleration
+      BUY_PRESSURE: 0.55,    // Lower from 0.6
+      VOLUME_SPIKE: 1.5,     // Lower from 2
+      PRICE_ACCEL: 1.2,      // Lower from 1.5
     }
   },
   SELL: {
     STRONG: {
-      BUY_PRESSURE_DROP: 0.4,  // Buy ratio drops below 40%
-      VOLUME_DROP: 0.5,        // Volume drops by 50%
-      PRICE_DECEL: 0.5,        // Price momentum drops by half
+      BUY_PRESSURE_DROP: 0.35,  // Raise from 0.4
+      VOLUME_DROP: 0.4,         // Lower from 0.5
+      PRICE_DECEL: 0.4,         // Lower from 0.5
     },
     MODERATE: {
-      BUY_PRESSURE_DROP: 0.45, // Buy ratio drops below 45%
-      VOLUME_DROP: 0.7,        // Volume drops by 30%
-      PRICE_DECEL: 0.7,        // Price momentum slows by 30%
+      BUY_PRESSURE_DROP: 0.45,  // Keep same
+      VOLUME_DROP: 0.6,         // Lower from 0.7
+      PRICE_DECEL: 0.6,         // Lower from 0.7
     }
   }
 }; 

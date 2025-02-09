@@ -71,7 +71,7 @@ export default function Home() {
           </div>
           
           {/* Trading Signal Badge */}
-          {token.tradingSignal && (
+          {token.tradingSignal?.signal && (
             <div className={`px-3 py-1 rounded-full text-white text-sm font-bold ${
               getSignalColor(token.tradingSignal.signal)
             }`}>
@@ -86,12 +86,12 @@ export default function Home() {
           <div className="bg-gray-700 p-2 rounded">
             <div className="flex justify-between items-center text-sm text-gray-400">
               <span>Buy Pressure</span>
-              {token.tradingSignal && (
+              {token.tradingSignal?.indicators.buyPressure.trend && (
                 <span>{getTrendArrow(token.tradingSignal.indicators.buyPressure.trend)}</span>
               )}
             </div>
             <p className="font-semibold">
-              {(token.tradingSignal?.indicators.buyPressure.value ?? 0).toFixed(2)}
+              {token.tradingSignal?.indicators.buyPressure.value.toFixed(2) ?? '0.00'}
             </p>
           </div>
 
@@ -99,12 +99,12 @@ export default function Home() {
           <div className="bg-gray-700 p-2 rounded">
             <div className="flex justify-between items-center text-sm text-gray-400">
               <span>Vol/Liq Ratio</span>
-              {token.tradingSignal && (
+              {token.tradingSignal?.indicators.volumeMetric.trend && (
                 <span>{getTrendArrow(token.tradingSignal.indicators.volumeMetric.trend)}</span>
               )}
             </div>
             <p className="font-semibold">
-              {(token.tradingSignal?.indicators.volumeMetric.value ?? 0).toFixed(2)}
+              {token.tradingSignal?.indicators.volumeMetric.value.toFixed(2) ?? '0.00'}
             </p>
           </div>
 
@@ -112,18 +112,18 @@ export default function Home() {
           <div className="bg-gray-700 p-2 rounded">
             <div className="flex justify-between items-center text-sm text-gray-400">
               <span>Price Momentum</span>
-              {token.tradingSignal && (
+              {token.tradingSignal?.indicators.priceMovement.trend && (
                 <span>{getTrendArrow(token.tradingSignal.indicators.priceMovement.trend)}</span>
               )}
             </div>
             <p className="font-semibold">
-              {(token.tradingSignal?.indicators.priceMovement.value ?? 0).toFixed(2)}
+              {token.tradingSignal?.indicators.priceMovement.value.toFixed(2) ?? '0.00'}
             </p>
           </div>
         </div>
 
         {/* Signal Reasons */}
-        {token.tradingSignal?.reasons.length > 0 && (
+        {token.tradingSignal?.reasons && token.tradingSignal.reasons.length > 0 && (
           <div className="mt-2 space-y-1">
             {token.tradingSignal.reasons.map((reason, index) => (
               <p key={index} className="text-sm text-gray-300">• {reason}</p>
@@ -141,6 +141,28 @@ export default function Home() {
             </span>
           </p>
           <p>Confidence: {token.tradingSignal?.confidence ?? 0}%</p>
+          
+          {/* Add address with copy button */}
+          <div className="col-span-2 mt-2 flex items-center gap-2 border-t border-gray-700 pt-2">
+            <span className="text-xs font-mono text-gray-500">
+              {token.address.slice(0, 8)}...{token.address.slice(-8)}
+            </span>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(token.address);
+                // Optional: Add a toast notification for copy success
+              }}
+              className="text-xs text-blue-400 hover:text-blue-300"
+            >
+              Copy
+            </button>
+            <button
+              onClick={() => handleScan(token.address)}
+              className="ml-auto px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-md text-white text-xs transition-colors"
+            >
+              Details
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -183,36 +205,7 @@ export default function Home() {
           ) : (
             <div className="grid gap-4">
               {trendingTokens.map((token) => (
-                <div 
-                  key={token.address}
-                  className="bg-gray-700 p-4 rounded-lg flex justify-between items-center hover:bg-gray-600 transition-colors"
-                >
-                  <div>
-                    <h3 className="text-white font-bold">{token.name} ({token.symbol})</h3>
-                    <div className="space-y-1">
-                      <p className="text-gray-300 text-sm">
-                        Price: ${token.price.toFixed(6)}
-                      </p>
-                      <p className="text-gray-300 text-sm">
-                        Volume 24h: ${token.volume24h.toLocaleString()}
-                      </p>
-                      <p className="text-gray-300 text-sm">
-                        Liquidity: ${token.liquidity.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-sm font-bold ${token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {token.priceChange24h.toFixed(2)}% (24h)
-                    </p>
-                    <button
-                      onClick={() => handleScan(token.address)}
-                      className="mt-2 px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm transition-colors"
-                    >
-                      Scan Token
-                    </button>
-                  </div>
-                </div>
+                <TrendingTokenCard key={token.address} token={token} />
               ))}
             </div>
           )}

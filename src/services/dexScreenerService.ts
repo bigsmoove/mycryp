@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { DEXSCREENER_API } from '../config/constants';
-import { ALERT_THRESHOLDS } from '../config/constants';
-import { TrendingToken } from '../types/token';
+import { ALERT_THRESHOLDS, TRADING_SIGNALS } from '../config/constants';
+import { TrendingToken, SignalStrength, TradingSignal } from '../types/token';
 
 interface TokenProfile {
   tokenAddress: string;
@@ -20,6 +20,7 @@ interface TokenMetrics extends TrendingToken {
   hourlyAcceleration?: number;
   volumeAcceleration?: number;
   isEarlyPhase?: boolean;
+  buyRatio?: number;
 }
 
 export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
@@ -124,6 +125,8 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
         priceAcceleration > 1.0;        // Price gaining momentum
 
       if (momentumCheck) {
+        const tradingSignal = analyzeTradingSignals(token);
+        
         // Calculate comprehensive score
         const { WEIGHTS } = ALERT_THRESHOLDS;
         const score = (
@@ -158,7 +161,8 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
             buyPressureSurge: buyPressure > ALERT_THRESHOLDS.BUY_PRESSURE,
             priceAccelerationAlert: priceAcceleration > ALERT_THRESHOLDS.PRICE_ACCELERATION
           },
-          alerts
+          alerts,
+          tradingSignal
         });
       }
     }
@@ -264,4 +268,105 @@ export const getTokenHistory = async (tokenAddress: string): Promise<any[]> => {
     console.error('Error creating token history:', error);
     return [];
   }
+};
+
+// Add this new function to analyze trading signals
+const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
+  const buyPressure = token.buyRatio ?? 0;
+  const volumeToLiquidityRatio = token.volume24h / token.liquidity;
+  const priceAcceleration = token.hourlyAcceleration ?? 0;
+
+  // Determine trends
+  const getBuyPressureTrend = (current: number, threshold: number = 0.5): 'up' | 'down' | 'neutral' => {
+    if (current > threshold + 0.1) return 'up';
+    if (current < threshold - 0.1) return 'down';
+    return 'neutral';
+  };
+
+  const getVolumeTrend = (ratio: number): 'up' | 'down' | 'neutral' => {
+    if (ratio > TRADING_SIGNALS.BUY.STRONG.VOLUME_SPIKE) return 'up';
+    if (ratio < TRADING_SIGNALS.SELL.STRONG.VOLUME_DROP) return 'down';
+    return 'neutral';
+  };
+
+  const getPriceTrend = (acceleration: number): 'up' | 'down' | 'neutral' => {
+    if (acceleration > TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL) return 'up';
+    if (acceleration < TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL) return 'down';
+    return 'neutral';
+  };
+
+  // Calculate signal strength
+  let signal: SignalStrength = 'HOLD';
+  const reasons: string[] = [];
+  let confidence = 50; // Base confidence
+
+  // Strong Buy Conditions
+  if (
+    buyPressure >= TRADING_SIGNALS.BUY.STRONG.BUY_PRESSURE &&
+    volumeToLiquidityRatio >= TRADING_SIGNALS.BUY.STRONG.VOLUME_SPIKE &&
+    priceAcceleration >= TRADING_SIGNALS.BUY.STRONG.PRICE_ACCEL
+  ) {
+    signal = 'STRONG_BUY';
+    confidence = 90;
+    reasons.push('Strong buying pressure with high volume');
+    reasons.push('Price showing significant upward momentum');
+  }
+  // Moderate Buy Conditions
+  else if (
+    buyPressure >= TRADING_SIGNALS.BUY.MODERATE.BUY_PRESSURE &&
+    volumeToLiquidityRatio >= TRADING_SIGNALS.BUY.MODERATE.VOLUME_SPIKE &&
+    priceAcceleration >= TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL
+  ) {
+    signal = 'MODERATE_BUY';
+    confidence = 70;
+    reasons.push('Moderate buying pressure detected');
+    reasons.push('Volume and price showing positive trends');
+  }
+  // Strong Sell Conditions
+  else if (
+    buyPressure <= TRADING_SIGNALS.SELL.STRONG.BUY_PRESSURE_DROP ||
+    volumeToLiquidityRatio <= TRADING_SIGNALS.SELL.STRONG.VOLUME_DROP ||
+    priceAcceleration <= TRADING_SIGNALS.SELL.STRONG.PRICE_DECEL
+  ) {
+    signal = 'STRONG_SELL';
+    confidence = 85;
+    reasons.push('Significant selling pressure detected');
+    if (buyPressure <= TRADING_SIGNALS.SELL.STRONG.BUY_PRESSURE_DROP) {
+      reasons.push('Heavy sell-side dominance');
+    }
+    if (volumeToLiquidityRatio <= TRADING_SIGNALS.SELL.STRONG.VOLUME_DROP) {
+      reasons.push('Volume dropping significantly');
+    }
+  }
+  // Consider Sell Conditions
+  else if (
+    buyPressure <= TRADING_SIGNALS.SELL.MODERATE.BUY_PRESSURE_DROP ||
+    volumeToLiquidityRatio <= TRADING_SIGNALS.SELL.MODERATE.VOLUME_DROP ||
+    priceAcceleration <= TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL
+  ) {
+    signal = 'CONSIDER_SELL';
+    confidence = 65;
+    reasons.push('Weakening market metrics detected');
+    reasons.push('Consider taking profits or setting stop-loss');
+  }
+
+  return {
+    signal,
+    confidence,
+    reasons,
+    indicators: {
+      buyPressure: {
+        value: buyPressure,
+        trend: getBuyPressureTrend(buyPressure)
+      },
+      volumeMetric: {
+        value: volumeToLiquidityRatio,
+        trend: getVolumeTrend(volumeToLiquidityRatio)
+      },
+      priceMovement: {
+        value: priceAcceleration,
+        trend: getPriceTrend(priceAcceleration)
+      }
+    }
+  };
 }; 
