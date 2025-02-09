@@ -5,6 +5,12 @@ import { TokenScanner } from '../services/tokenScanner';
 import { fetchTrendingTokens } from '../services/dexScreenerService';
 import TokenDetails from '../components/TokenDetails';
 import type { TrendingToken, SignalStrength } from '../types/token';
+import { NotificationService } from '../services/notificationService';
+import NotificationPanel from '../components/NotificationPanel';
+import PositionTrackerPanel from '../components/PositionTrackerPanel';
+import { PositionTracker } from '../services/positionTracker';
+import type { Position } from '../types/position';
+import type { Notification } from '../types/notification';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
@@ -14,6 +20,11 @@ export default function Home() {
   const [isLoadingTrending, setIsLoadingTrending] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [positions, setPositions] = useState<Map<string, Position>>(new Map());
+
+  const notificationService = new NotificationService();
+  const positionTracker = PositionTracker.getInstance();
 
   useEffect(() => {
     const loadTrendingTokens = async () => {
@@ -37,8 +48,43 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = notificationService.subscribe((notification) => {
+      setNotifications(prev => [notification, ...prev].slice(0, 10));
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   const handleScan = async (address: string) => {
     setSelectedToken(address);
+  };
+
+  const handleAddPosition = (token: TrendingToken, amount: number) => {
+    const stops = {
+      initialStop: token.price * 0.85, // 15% stop loss
+      trailingStop: token.price * 0.9,  // 10% trailing stop
+    };
+
+    const position: Position = {
+      tokenAddress: token.address,
+      entryPrice: token.price,
+      entryTime: new Date(),
+      amount,
+      stopLoss: stops.initialStop,
+      takeProfit: token.price * 1.5, // 50% take profit
+      trailingStop: stops.trailingStop
+    };
+
+    const newPositions = new Map(positions);
+    newPositions.set(token.address, position);
+    setPositions(newPositions);
+
+    notificationService.notify(
+      'ENTRY',
+      `New position opened for ${token.symbol}`,
+      'medium'
+    );
   };
 
   const TrendingTokenCard = ({ token }: { token: TrendingToken }) => {
@@ -108,16 +154,14 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Price Movement */}
+          {/* Current Price */}
           <div className="bg-gray-700 p-2 rounded">
             <div className="flex justify-between items-center text-sm text-gray-400">
-              <span>Price Momentum</span>
-              {token.tradingSignal?.indicators.priceMovement.trend && (
-                <span>{getTrendArrow(token.tradingSignal.indicators.priceMovement.trend)}</span>
-              )}
+              <span>Current Price</span>
+              <span>{token.priceChange24h >= 0 ? '↑' : '↓'}</span>
             </div>
             <p className="font-semibold">
-              {token.tradingSignal?.indicators.priceMovement.value.toFixed(2) ?? '0.00'}
+              ${token.price.toFixed(8)}
             </p>
           </div>
         </div>
@@ -132,25 +176,32 @@ export default function Home() {
         )}
 
         {/* Token Stats */}
-        <div className="mt-4 grid grid-cols-2 gap-2 text-sm text-gray-400">
+        <div className="mt-4 grid grid-cols-3 gap-2 text-sm text-gray-400">
           <p>Volume 24h: ${token.volume24h.toLocaleString()}</p>
           <p>Liquidity: ${token.liquidity.toLocaleString()}</p>
-          <p>Price Change: 
+          <p>
+            24h Change: 
             <span className={token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}>
-              {token.priceChange24h.toFixed(2)}%
+              {' '}{token.priceChange24h.toFixed(2)}%
             </span>
           </p>
-          <p>Confidence: {token.tradingSignal?.confidence ?? 0}%</p>
+        </div>
+
+        {/* Confidence and Address Section */}
+        <div className="mt-2 pt-2 border-t border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-gray-400">
+              Confidence: {token.tradingSignal?.confidence ?? 0}%
+            </p>
+          </div>
           
-          {/* Add address with copy button */}
-          <div className="col-span-2 mt-2 flex items-center gap-2 border-t border-gray-700 pt-2">
+          <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-gray-500">
               {token.address.slice(0, 8)}...{token.address.slice(-8)}
             </span>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(token.address);
-                // Optional: Add a toast notification for copy success
               }}
               className="text-xs text-blue-400 hover:text-blue-300"
             >
@@ -253,6 +304,24 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-6">
+          <PositionTrackerPanel 
+            positions={positions} 
+            onClosePosition={(address) => {
+              const position = positions.get(address);
+              if (position) {
+                notificationService.notify(
+                  'EXIT',
+                  `Closed position for ${address}`,
+                  'medium'
+                );
+                positions.delete(address);
+                setPositions(new Map(positions));
+              }
+            }}
+          />
+        </div>
       </div>
 
       {/* Add the TokenDetails modal */}
@@ -262,6 +331,8 @@ export default function Home() {
           onClose={() => setSelectedToken(null)}
         />
       )}
+
+      <NotificationPanel notifications={notifications} />
     </main>
   );
 } 

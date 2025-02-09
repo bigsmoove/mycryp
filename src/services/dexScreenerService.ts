@@ -21,7 +21,42 @@ interface TokenMetrics extends TrendingToken {
   volumeAcceleration?: number;
   isEarlyPhase?: boolean;
   buyRatio?: number;
+  txns?: {
+    h24?: {
+      buys: number;
+      sells: number;
+    };
+  };
 }
+
+// Move this to the top of the file as a utility function
+const calculatePriceMomentum = (pair: any) => {
+  if (!pair.priceChange?.h1 || !pair.priceChange?.h24) return 0;
+
+  // Compare 1h price change to average hourly change over 24h
+  const hourlyAverage = pair.priceChange.h24 / 24;
+  const currentHourly = pair.priceChange.h1;
+  
+  // Calculate relative momentum
+  const momentum = currentHourly - hourlyAverage;
+  
+  // Normalize to a -100 to +100 scale
+  // This will show how much faster/slower current movement is compared to average
+  const normalizedValue = Math.min(Math.max(momentum * 2, -100), 100);
+  
+  return Number(normalizedValue.toFixed(2));
+};
+
+// Add new thresholds to our analysis
+const SAFETY_THRESHOLDS = {
+  MIN_LIQUIDITY: 100_000, // $100k minimum liquidity
+  MIN_VOLUME: 500_000,    // $500k minimum volume
+  MIN_TRANSACTIONS: 150,  // Minimum transactions
+  MAX_MCAP: 150_000_000, // $150M max market cap
+  WHALE_THRESHOLD: 0.05,  // 5% max wallet holding
+  PRICE_SPIKE_WARNING: 50, // 50% price increase warning
+  VOLUME_LIQUIDITY_RATIO_MAX: 10 // Max healthy volume/liquidity ratio
+};
 
 export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
   try {
@@ -58,9 +93,7 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
           const pair = pairsResponse.data.pairs[0];
           
           // Calculate acceleration metrics
-          const hourlyAcceleration = pair.priceChange?.h1 
-            ? (pair.priceChange.h1 / (pair.priceChange.h24 / 24))
-            : 0;
+          const hourlyAcceleration = calculatePriceMomentum(pair);
           
           const volumeAcceleration = pair.volume?.h1 
             ? (pair.volume.h1 * 24) / (pair.volume.h24 || 1)
@@ -68,7 +101,7 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
 
           // Determine if token is in early phase
           const isEarlyPhase = 
-            hourlyAcceleration > 1.5 && // Price moving faster recently
+            Number(hourlyAcceleration) > 1.5 && // Price moving faster recently
             volumeAcceleration > 1.2 && // Volume increasing
             pair.priceChange?.h24 < 50 && // Not already pumped too much
             (pair.txns?.h24?.buys ?? 0) > (pair.txns?.h24?.sells ?? 0); // More buys than sells
@@ -274,7 +307,57 @@ export const getTokenHistory = async (tokenAddress: string): Promise<any[]> => {
 const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   const buyPressure = token.buyRatio ?? 0;
   const volumeToLiquidityRatio = token.volume24h / token.liquidity;
-  const priceAcceleration = token.hourlyAcceleration ?? 0;
+  const totalTxns = (token.txns?.h24?.buys ?? 0) + (token.txns?.h24?.sells ?? 0);
+
+  // Enhanced safety checks
+  const safetyIssues: string[] = [];
+  
+  if (token.liquidity < SAFETY_THRESHOLDS.MIN_LIQUIDITY) {
+    safetyIssues.push('⚠️ Low liquidity - high risk of price manipulation');
+  }
+  
+  if (token.volume24h < SAFETY_THRESHOLDS.MIN_VOLUME) {
+    safetyIssues.push('⚠️ Low volume - potential lack of trading activity');
+  }
+  
+  if (totalTxns < SAFETY_THRESHOLDS.MIN_TRANSACTIONS) {
+    safetyIssues.push('⚠️ Low transaction count - possible lack of community interest');
+  }
+
+  // Detect potential pump and dump
+  const isPotentialPumpAndDump = 
+    token.priceChange24h > SAFETY_THRESHOLDS.PRICE_SPIKE_WARNING && 
+    volumeToLiquidityRatio > SAFETY_THRESHOLDS.VOLUME_LIQUIDITY_RATIO_MAX &&
+    buyPressure < 0.6;
+
+  if (isPotentialPumpAndDump) {
+    safetyIssues.push('🚨 Warning: Potential pump and dump pattern detected');
+    safetyIssues.push('High volume with price spike suggests manipulation');
+    return {
+      signal: 'STRONG_SELL',
+      confidence: 90,
+      reasons: safetyIssues,
+      indicators: {
+        buyPressure: { value: buyPressure, trend: 'down' },
+        volumeMetric: { value: volumeToLiquidityRatio, trend: 'down' },
+        priceMovement: { value: token.hourlyAcceleration ?? 0, trend: 'down' }
+      }
+    };
+  }
+
+  // If there are safety issues, default to HOLD
+  if (safetyIssues.length > 0) {
+    return {
+      signal: 'HOLD',
+      confidence: 40,
+      reasons: safetyIssues,
+      indicators: {
+        buyPressure: { value: buyPressure, trend: 'neutral' },
+        volumeMetric: { value: volumeToLiquidityRatio, trend: 'neutral' },
+        priceMovement: { value: token.hourlyAcceleration ?? 0, trend: 'neutral' }
+      }
+    };
+  }
 
   // Determine trends
   const getBuyPressureTrend = (current: number, threshold: number = 0.5): 'up' | 'down' | 'neutral' => {
@@ -296,64 +379,45 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   };
 
   // Calculate signal strength
-  let signal: SignalStrength = 'HOLD';
-  const reasons: string[] = [];
   let confidence = 50; // Base confidence
 
   // Strong Buy Conditions
   if (
     buyPressure >= TRADING_SIGNALS.BUY.STRONG.BUY_PRESSURE &&
     volumeToLiquidityRatio >= TRADING_SIGNALS.BUY.STRONG.VOLUME_SPIKE &&
-    priceAcceleration >= TRADING_SIGNALS.BUY.STRONG.PRICE_ACCEL
+    (token.hourlyAcceleration ?? 0) >= TRADING_SIGNALS.BUY.STRONG.PRICE_ACCEL
   ) {
-    signal = 'STRONG_BUY';
     confidence = 90;
-    reasons.push('Strong buying pressure with high volume');
-    reasons.push('Price showing significant upward momentum');
   }
   // Moderate Buy Conditions
   else if (
     buyPressure >= TRADING_SIGNALS.BUY.MODERATE.BUY_PRESSURE &&
     volumeToLiquidityRatio >= TRADING_SIGNALS.BUY.MODERATE.VOLUME_SPIKE &&
-    priceAcceleration >= TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL
+    (token.hourlyAcceleration ?? 0) >= TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL
   ) {
-    signal = 'MODERATE_BUY';
     confidence = 70;
-    reasons.push('Moderate buying pressure detected');
-    reasons.push('Volume and price showing positive trends');
   }
   // Strong Sell Conditions
   else if (
     buyPressure <= TRADING_SIGNALS.SELL.STRONG.BUY_PRESSURE_DROP ||
     volumeToLiquidityRatio <= TRADING_SIGNALS.SELL.STRONG.VOLUME_DROP ||
-    priceAcceleration <= TRADING_SIGNALS.SELL.STRONG.PRICE_DECEL
+    (token.hourlyAcceleration ?? 0) <= TRADING_SIGNALS.SELL.STRONG.PRICE_DECEL
   ) {
-    signal = 'STRONG_SELL';
     confidence = 85;
-    reasons.push('Significant selling pressure detected');
-    if (buyPressure <= TRADING_SIGNALS.SELL.STRONG.BUY_PRESSURE_DROP) {
-      reasons.push('Heavy sell-side dominance');
-    }
-    if (volumeToLiquidityRatio <= TRADING_SIGNALS.SELL.STRONG.VOLUME_DROP) {
-      reasons.push('Volume dropping significantly');
-    }
   }
   // Consider Sell Conditions
   else if (
     buyPressure <= TRADING_SIGNALS.SELL.MODERATE.BUY_PRESSURE_DROP ||
     volumeToLiquidityRatio <= TRADING_SIGNALS.SELL.MODERATE.VOLUME_DROP ||
-    priceAcceleration <= TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL
+    (token.hourlyAcceleration ?? 0) <= TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL
   ) {
-    signal = 'CONSIDER_SELL';
     confidence = 65;
-    reasons.push('Weakening market metrics detected');
-    reasons.push('Consider taking profits or setting stop-loss');
   }
 
   return {
-    signal,
+    signal: confidence >= 70 ? 'STRONG_BUY' : confidence >= 50 ? 'MODERATE_BUY' : confidence >= 40 ? 'CONSIDER_SELL' : 'STRONG_SELL',
     confidence,
-    reasons,
+    reasons: [],
     indicators: {
       buyPressure: {
         value: buyPressure,
@@ -364,8 +428,8 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
         trend: getVolumeTrend(volumeToLiquidityRatio)
       },
       priceMovement: {
-        value: priceAcceleration,
-        trend: getPriceTrend(priceAcceleration)
+        value: token.hourlyAcceleration ?? 0,
+        trend: getPriceTrend(token.hourlyAcceleration ?? 0)
       }
     }
   };

@@ -37,8 +37,8 @@ export interface TrendingToken {
   volume24h: number;
   priceChange24h: number;
   liquidity: number;
-  dexId?: string;
-  pairAddress?: string;
+  dexId: string;
+  pairAddress: string;
   icon?: string;
   description?: string;
   links?: Array<{
@@ -46,8 +46,21 @@ export interface TrendingToken {
     label?: string;
     url: string;
   }>;
-  indicators?: TokenIndicators;
-  alerts?: string[];
   score?: number;
+  indicators?: {
+    volumeToLiquidityRatio: string;
+    buyPressure: string;
+    priceAcceleration: string;
+    volumeSpike: boolean;
+    buyPressureSurge: boolean;
+    priceAccelerationAlert: boolean;
+  };
+  alerts?: string[];
   tradingSignal?: TradingSignal;
+  txns?: {
+    h24?: {
+      buys: number;
+      sells: number;
+    };
+  };
 } 
