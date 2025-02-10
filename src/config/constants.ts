@@ -4,7 +4,9 @@ export const DEXSCREENER_API = 'https://api.dexscreener.com/';
 export const SAFETY_THRESHOLDS = {
   MARKET_CAP: {
     MIN_VIABLE: 500_000,    // $500k minimum
-    SWEET_SPOT: 100_000_000 // $100M - good exit point
+    HEALTHY: 5_000_000,     // $5M healthy range
+    SWEET_SPOT: 100_000_000, // $100M - good exit point
+    MAX_UPSIDE: 150_000_000  // $150M limited upside
   },
   LIQUIDITY: {
     MIN: 100_000,    // $100k minimum liquidity

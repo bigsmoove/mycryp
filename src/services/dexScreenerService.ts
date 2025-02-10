@@ -17,6 +17,8 @@ interface TokenProfile {
 }
 
 interface TokenMetrics extends TrendingToken {
+  marketCap?: number;
+  totalSupply?: number;
   hourlyAcceleration?: number;
   volumeAcceleration?: number;
   isEarlyPhase?: boolean;
@@ -70,6 +72,12 @@ const SAFETY_THRESHOLDS = {
   RATIOS: {
     MAX_VOL_LIQ: 10,  // Maximum healthy volume/liquidity ratio
     MIN_BUY_RATIO: 0.4 // Minimum healthy buy ratio
+  },
+  MARKET_CAP: {
+    MIN_VIABLE: 500_000,      // $500k minimum
+    HEALTHY: 5_000_000,       // $5M healthy range
+    SWEET_SPOT: 100_000_000,  // $100M good exit point
+    MAX_UPSIDE: 150_000_000   // $150M limited upside
   }
 };
 
@@ -139,7 +147,9 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
             isEarlyPhase,
             buyRatio: pair.txns?.h24?.buys 
               ? pair.txns.h24.buys / (pair.txns.h24.buys + pair.txns.h24.sells) 
-              : 0
+              : 0,
+            marketCap: pair.fdv || 0,
+            totalSupply: pair.baseToken?.totalSupply || 0
           };
         } catch (error) {
           console.error(`Error fetching pair data for ${profile.tokenAddress}:`, error);
@@ -323,7 +333,8 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   // Get safety issues and exit signals
   const safetyIssues = analyzeSafetyMetrics(token);
   const exitSignals = getExitSignals(token);
-  const allWarnings = [...safetyIssues, ...exitSignals];
+  const marketCapWarnings = analyzeMarketCap(token);
+  const allWarnings = [...safetyIssues, ...exitSignals, ...marketCapWarnings];
 
   // Calculate key metrics with safe defaults
   const buyRatio = token.buyRatio ?? 0;
@@ -489,4 +500,30 @@ const getPriceTrend = (acceleration: number): 'up' | 'down' | 'neutral' => {
   if (acceleration > TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL) return 'up';
   if (acceleration < TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL) return 'down';
   return 'neutral';
+};
+
+const analyzeMarketCap = (token: TokenMetrics): string[] => {
+  const warnings: string[] = [];
+  const marketCap = token.marketCap ?? 0;
+
+  if (marketCap === 0) {
+    warnings.push('⚠️ Unable to determine market cap - exercise caution');
+    return warnings;
+  }
+
+  if (marketCap < SAFETY_THRESHOLDS.MARKET_CAP.MIN_VIABLE) {
+    warnings.push(`🚨 Very low market cap ($${(marketCap / 1000).toFixed(1)}k) - high volatility risk`);
+  } else if (marketCap < SAFETY_THRESHOLDS.MARKET_CAP.HEALTHY) {
+    warnings.push(`⚠️ Low market cap ($${(marketCap / 1_000_000).toFixed(1)}M) - proceed with caution`);
+  }
+
+  if (marketCap > SAFETY_THRESHOLDS.MARKET_CAP.SWEET_SPOT) {
+    warnings.push(`🎯 Large market cap ($${(marketCap / 1_000_000).toFixed(1)}M) - consider taking profits`);
+  }
+
+  if (marketCap > SAFETY_THRESHOLDS.MARKET_CAP.MAX_UPSIDE) {
+    warnings.push(`📊 Market cap above optimal range ($${(marketCap / 1_000_000).toFixed(1)}M) - limited upside potential`);
+  }
+
+  return warnings;
 }; 
