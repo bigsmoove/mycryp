@@ -19,6 +19,16 @@ export interface TradingSignal {
   signal: SignalStrength;
   confidence: number;
   reasons: string[];
+  score?: number;
+  strategy?: string;
+  priceTargets?: {
+    entry: number;
+    nextResistance: number;
+    supportLevel: number;
+    riskRewardRatio: number;
+    stopLoss: number;
+    targetProfit: number;
+  };
   indicators: {
     buyPressure: {
       value: number;

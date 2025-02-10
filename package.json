@@ -12,7 +12,9 @@
     "@solana/spl-token": "^0.4.12",
     "@solana/web3.js": "^1.98.0",
     "@solflare-wallet/sdk": "^1.4.2",
+    "@types/classnames": "^2.3.0",
     "axios": "^1.7.9",
+    "classnames": "^2.5.1",
     "next": "15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

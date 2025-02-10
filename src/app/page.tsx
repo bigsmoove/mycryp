@@ -11,6 +11,8 @@ import PositionTrackerPanel from '../components/PositionTrackerPanel';
 import { PositionTracker } from '../services/positionTracker';
 import type { Position } from '../types/position';
 import type { Notification } from '../types/notification';
+import { RISK_SCORE } from '../config/constants';
+import classNames from 'classnames';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
@@ -88,6 +90,13 @@ export default function Home() {
   };
 
   const TrendingTokenCard = ({ token }: { token: TrendingToken }) => {
+    // Debug logging
+    console.log('Token card data:', {
+      symbol: token.symbol,
+      tradingSignal: token.tradingSignal,
+      score: token.tradingSignal?.score
+    });
+
     const getSignalColor = (signal: SignalStrength) => {
       switch (signal) {
         case 'STRONG_BUY': return 'bg-green-500';
@@ -107,6 +116,8 @@ export default function Home() {
         case 'neutral': return '→';
       }
     };
+
+    const riskScore = token.tradingSignal?.score;
 
     return (
       <div className="p-4 bg-gray-800 rounded-lg">
@@ -167,11 +178,23 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Signal Reasons */}
+        {/* Signal Reasons/Warnings in 2 columns */}
         {token.tradingSignal?.reasons && token.tradingSignal.reasons.length > 0 && (
-          <div className="mt-2 space-y-1">
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
             {token.tradingSignal.reasons.map((reason, index) => (
-              <p key={index} className="text-sm text-gray-300">• {reason}</p>
+              <p 
+                key={index} 
+                className={classNames(
+                  "text-sm text-gray-300",
+                  // Add ellipsis if text is too long
+                  "overflow-hidden text-ellipsis whitespace-nowrap",
+                  // Add tooltip for full text on hover
+                  "hover:whitespace-normal hover:text-clip"
+                )}
+                title={reason} // Show full text on hover
+              >
+                • {reason}
+              </p>
             ))}
           </div>
         )}
@@ -188,14 +211,28 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Confidence and Address Section */}
+        {/* Risk Score and Confidence Section */}
         <div className="mt-2 pt-2 border-t border-gray-700">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-400">
+              Risk Score: 
+              <span className={classNames('ml-2 font-bold', {
+                'text-green-400': riskScore && riskScore <= RISK_SCORE.THRESHOLDS.LOW_RISK,
+                'text-yellow-400': riskScore && riskScore <= RISK_SCORE.THRESHOLDS.MEDIUM_RISK,
+                'text-red-400': riskScore && riskScore > RISK_SCORE.THRESHOLDS.MEDIUM_RISK,
+                'text-gray-400': !riskScore
+              })}>
+                {riskScore ? `${riskScore}/100` : 'N/A'}
+              </span>
+            </p>
             <p className="text-sm text-gray-400">
               Confidence: {token.tradingSignal?.confidence ?? 0}%
             </p>
           </div>
-          
+        </div>
+
+        {/* Address Section */}
+        <div className="mt-2 pt-2 border-t border-gray-700">
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-gray-500">
               {token.address.slice(0, 8)}...{token.address.slice(-8)}

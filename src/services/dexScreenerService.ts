@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { DEXSCREENER_API } from '../config/constants';
-import { ALERT_THRESHOLDS, TRADING_SIGNALS } from '../config/constants';
+import { ALERT_THRESHOLDS, TRADING_SIGNALS, PRICE_ACTION, TOKEN_MATURITY, VOLUME_ANALYSIS, TRADING_STRATEGY } from '../config/constants';
 import { TrendingToken, SignalStrength, TradingSignal } from '../types/token';
 
 interface TokenProfile {
@@ -189,53 +189,37 @@ export const fetchTrendingTokens = async (): Promise<TrendingToken[]> => {
         priceAcceleration > 1.0;        // Price gaining momentum
 
       if (momentumCheck) {
-        const tradingSignal = analyzeTradingSignals(token);
+        const signalAnalysis = analyzeTradingSignals(token);
         
-        // Calculate comprehensive score
-        const { WEIGHTS } = ALERT_THRESHOLDS;
-        const score = (
-          (volumeToLiquidityRatio * WEIGHTS.VOLUME_LIQUIDITY) +
-          (buyPressure * WEIGHTS.BUY_PRESSURE) +
-          (priceAcceleration * WEIGHTS.PRICE_MOMENTUM) +
-          (Math.min(token.priceChange24h, 100) * WEIGHTS.PERFORMANCE / 100)
-        );
-
-        const alerts: string[] = [];
-        
-        if (volumeToLiquidityRatio > ALERT_THRESHOLDS.VOLUME_SPIKE) {
-          alerts.push('🚨 Volume Spike Alert');
-        }
-        
-        if (buyPressure > ALERT_THRESHOLDS.BUY_PRESSURE) {
-          alerts.push('💫 Strong Buy Pressure');
-        }
-        
-        if (priceAcceleration > ALERT_THRESHOLDS.PRICE_ACCELERATION) {
-          alerts.push('🚀 Price Acceleration');
-        }
+        // Debug the trading signal
+        console.log('Trading signal:', {
+          symbol: token.symbol,
+          signal: signalAnalysis.signal,
+          score: signalAnalysis.score,
+          confidence: signalAnalysis.confidence
+        });
 
         filteredTokens.push({
           ...token,
-          score,
-          indicators: {
-            volumeToLiquidityRatio: volumeToLiquidityRatio.toFixed(2),
-            buyPressure: buyPressure.toFixed(2),
-            priceAcceleration: priceAcceleration.toFixed(2),
-            volumeSpike: volumeToLiquidityRatio > ALERT_THRESHOLDS.VOLUME_SPIKE,
-            buyPressureSurge: buyPressure > ALERT_THRESHOLDS.BUY_PRESSURE,
-            priceAccelerationAlert: priceAcceleration > ALERT_THRESHOLDS.PRICE_ACCELERATION
-          },
-          alerts,
-          tradingSignal
+          tradingSignal: {
+            ...signalAnalysis,
+            score: signalAnalysis.score // Explicitly include the score
+          }
         });
       }
     }
 
-    console.log('Filtered tokens:', filteredTokens);
+    // Add debug logging
+    console.log('Filtered tokens with risk scores:', 
+      filteredTokens.map(t => ({
+        symbol: t.symbol,
+        riskScore: t.tradingSignal?.score
+      }))
+    );
 
     // Sort by score and return
     return filteredTokens
-      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .sort((a, b) => (b.tradingSignal?.score || 0) - (a.tradingSignal?.score || 0))
       .slice(0, 5);
 
   } catch (error) {
@@ -335,45 +319,263 @@ export const getTokenHistory = async (tokenAddress: string): Promise<any[]> => {
 };
 
 // Add this new function to analyze trading signals
+const calculateRiskScore = (token: TokenMetrics): { score: number; factors: string[] } => {
+  let riskScore = 50; // Base score
+  const riskFactors: string[] = [];
+
+  // Market cap risk (-20 to +20)
+  const marketCap = token.marketCap ?? 0;
+  if (marketCap < SAFETY_THRESHOLDS.MARKET_CAP.MIN_VIABLE) {
+    riskScore += 20;
+    riskFactors.push('Very low market cap');
+  } else if (marketCap > SAFETY_THRESHOLDS.MARKET_CAP.SWEET_SPOT) {
+    riskScore -= 20;
+    riskFactors.push('Large established market cap');
+  }
+
+  // Liquidity risk (-15 to +15)
+  if (token.liquidity < SAFETY_THRESHOLDS.LIQUIDITY.MIN) {
+    riskScore += 15;
+    riskFactors.push('Low liquidity');
+  } else if (token.liquidity > SAFETY_THRESHOLDS.LIQUIDITY.HEALTHY) {
+    riskScore -= 15;
+    riskFactors.push('Healthy liquidity');
+  }
+
+  // Volume patterns (-10 to +10)
+  const volLiqRatio = token.volume24h / token.liquidity;
+  if (volLiqRatio > SAFETY_THRESHOLDS.RATIOS.MAX_VOL_LIQ) {
+    riskScore += 10;
+    riskFactors.push('High volume vs liquidity');
+  } else if (volLiqRatio < 3) {
+    riskScore -= 10;
+    riskFactors.push('Stable volume patterns');
+  }
+
+  // Transaction patterns (-5 to +5)
+  const totalTxns = (token.txns?.h24?.buys ?? 0) + (token.txns?.h24?.sells ?? 0);
+  if (totalTxns < SAFETY_THRESHOLDS.TRANSACTIONS.MIN_24H) {
+    riskScore += 5;
+    riskFactors.push('Low transaction count');
+  } else if (totalTxns > SAFETY_THRESHOLDS.TRANSACTIONS.MIN_24H * 3) {
+    riskScore -= 5;
+    riskFactors.push('High trading activity');
+  }
+
+  // Ensure score stays within 0-100 range
+  return {
+    score: Math.min(Math.max(Math.round(riskScore), 0), 100),
+    factors: riskFactors
+  };
+};
+
+const analyzePriceAction = (token: TokenMetrics): string[] => {
+  const insights: string[] = [];
+  const { HEALTHY_GROWTH, MOMENTUM, CONSOLIDATION } = PRICE_ACTION.THRESHOLDS;
+  
+  // Check for healthy growth
+  if (token.priceChange24h > HEALTHY_GROWTH.MIN && token.priceChange24h < HEALTHY_GROWTH.MAX) {
+    insights.push('📈 Healthy price growth - not overheated');
+  } else if (token.priceChange24h > HEALTHY_GROWTH.MAX) {
+    insights.push('🔥 Price potentially overheated - exercise caution');
+  }
+  
+  // Check for potential reversal
+  if (token.hourlyAcceleration && token.hourlyAcceleration < MOMENTUM.REVERSAL) {
+    insights.push('⚠️ Momentum slowing - potential reversal');
+  } else if (token.hourlyAcceleration && token.hourlyAcceleration > MOMENTUM.STRONG) {
+    insights.push('🚀 Strong upward momentum detected');
+  }
+  
+  // Check for consolidation
+  const priceMovement = Math.abs(token.priceChange24h);
+  const volLiqRatio = token.volume24h / token.liquidity;
+  
+  if (priceMovement < CONSOLIDATION.RANGE && volLiqRatio > CONSOLIDATION.MIN_VOL_RATIO) {
+    insights.push('🎯 Healthy consolidation with good volume');
+  }
+  
+  return insights;
+};
+
+const analyzeTokenMaturity = (token: TokenMetrics): { classification: string; reasons: string[] } => {
+  const reasons: string[] = [];
+  const marketCap = token.marketCap ?? 0;
+  
+  // Check if it's a new token
+  if (
+    marketCap < TOKEN_MATURITY.THRESHOLDS.NEW_TOKEN.MAX_MARKET_CAP &&
+    (token.txns?.h24?.buys ?? 0) + (token.txns?.h24?.sells ?? 0) < 1000
+  ) {
+    reasons.push('🌱 New token - early stage investment');
+    return { classification: 'NEW', reasons };
+  }
+  
+  // Check if it's established
+  if (
+    marketCap > TOKEN_MATURITY.THRESHOLDS.ESTABLISHED_TOKEN.MIN_MARKET_CAP &&
+    token.liquidity > SAFETY_THRESHOLDS.LIQUIDITY.HEALTHY * 2
+  ) {
+    reasons.push('🏛️ Established token - mature market');
+    return { classification: 'ESTABLISHED', reasons };
+  }
+  
+  reasons.push('📈 Growing token - development phase');
+  return { classification: 'GROWING', reasons };
+};
+
+const analyzeVolumeTrends = (token: TokenMetrics): string[] => {
+  const insights: string[] = [];
+  const buyRatio = token.buyRatio ?? 0.5;
+  const buyVolume = token.volume24h * buyRatio;
+  const sellVolume = token.volume24h * (1 - buyRatio);
+  const buySellRatio = buyVolume / (sellVolume || 1);
+
+  // Analyze buy/sell ratio
+  if (buySellRatio > VOLUME_ANALYSIS.THRESHOLDS.BUY_SELL_RATIO.VERY_BULLISH) {
+    insights.push(`💫 Very strong buy pressure - ${buySellRatio.toFixed(1)}x more buys than sells`);
+  } else if (buySellRatio > VOLUME_ANALYSIS.THRESHOLDS.BUY_SELL_RATIO.BULLISH) {
+    insights.push(`📈 Healthy buy pressure - ${buySellRatio.toFixed(1)}x more buys than sells`);
+  } else if (buySellRatio < VOLUME_ANALYSIS.THRESHOLDS.BUY_SELL_RATIO.VERY_BEARISH) {
+    insights.push(`⚠️ Heavy selling pressure - ${(1/buySellRatio).toFixed(1)}x more sells than buys`);
+  }
+
+  // Volume significance
+  const volumeToLiq = token.volume24h / token.liquidity;
+  if (volumeToLiq > VOLUME_ANALYSIS.THRESHOLDS.VOLUME_INCREASE.MAJOR) {
+    insights.push(`🌊 Massive volume - ${volumeToLiq.toFixed(1)}x liquidity in 24h`);
+  } else if (volumeToLiq > VOLUME_ANALYSIS.THRESHOLDS.VOLUME_INCREASE.SIGNIFICANT) {
+    insights.push(`💫 High trading activity - ${volumeToLiq.toFixed(1)}x liquidity in 24h`);
+  }
+
+  return insights;
+};
+
+const calculatePriceTargets = (token: TokenMetrics) => {
+  const { RESISTANCE_MULTIPLIER, SUPPORT_MULTIPLIER } = TRADING_STRATEGY.PRICE_TARGETS;
+  
+  const nextResistance = token.price * RESISTANCE_MULTIPLIER;
+  const supportLevel = token.price * SUPPORT_MULTIPLIER;
+  const riskRewardRatio = (nextResistance - token.price) / (token.price - supportLevel);
+
+  return {
+    entry: token.price,
+    nextResistance,
+    supportLevel,
+    riskRewardRatio,
+    stopLoss: supportLevel,
+    targetProfit: nextResistance
+  };
+};
+
+const suggestStrategy = (token: TokenMetrics): { 
+  recommendation: string; 
+  reasoning: string[];
+  targets?: ReturnType<typeof calculatePriceTargets>;
+} => {
+  const reasoning: string[] = [];
+  
+  // Check market cap tier
+  const marketCap = token.marketCap ?? 0;
+  if (marketCap > TRADING_STRATEGY.MARKET_CAP_TIERS.LARGE) {
+    return {
+      recommendation: "WAIT",
+      reasoning: ["🐋 Market cap too large - limited upside potential"]
+    };
+  }
+
+  // Calculate targets
+  const targets = calculatePriceTargets(token);
+  
+  // Check if risk/reward is attractive
+  if (targets.riskRewardRatio < TRADING_STRATEGY.PRICE_TARGETS.MIN_RISK_REWARD) {
+    return {
+      recommendation: "WAIT",
+      reasoning: [`📊 Risk/Reward ratio (${targets.riskRewardRatio.toFixed(2)}) below minimum`]
+    };
+  }
+
+  // Check buy pressure
+  const buyRatio = token.buyRatio ?? 0;
+  if (buyRatio > TRADING_STRATEGY.ENTRY_CONDITIONS.STRONG_BUY_RATIO) {
+    reasoning.push(`💫 Strong buy pressure (${(buyRatio * 100).toFixed(1)}% buys)`);
+  }
+
+  // Check liquidity
+  if (token.liquidity > TRADING_STRATEGY.ENTRY_CONDITIONS.MIN_LIQUIDITY) {
+    reasoning.push(`💧 Good liquidity ($${(token.liquidity / 1000).toFixed(1)}k)`);
+  }
+
+  // Make final recommendation
+  if (reasoning.length >= 2) {
+    return {
+      recommendation: "ENTER",
+      reasoning: [
+        "🎯 Consider entering position",
+        `📈 Target: $${targets.targetProfit.toFixed(8)}`,
+        `🛑 Stop Loss: $${targets.stopLoss.toFixed(8)}`,
+        ...reasoning
+      ],
+      targets
+    };
+  }
+
+  return {
+    recommendation: "MONITOR",
+    reasoning: ["⏳ Wait for better setup"],
+    targets
+  };
+};
+
+// Update analyzeTradingSignals to include strategy suggestions
 const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
-  // Get safety issues and exit signals
+  const { classification, reasons: maturityReasons } = analyzeTokenMaturity(token);
+  const volumeInsights = analyzeVolumeTrends(token);
   const safetyIssues = analyzeSafetyMetrics(token);
   const exitSignals = getExitSignals(token);
   const marketCapWarnings = analyzeMarketCap(token);
   const whaleWarnings = detectWhaleActivity(token);
-  const allWarnings = [...safetyIssues, ...exitSignals, ...marketCapWarnings, ...whaleWarnings];
+  const priceActionInsights = analyzePriceAction(token);
+  const { score: riskScore, factors: riskFactors } = calculateRiskScore(token);
+  
+  // Debug the risk score calculation
+  console.log('Risk score calculation:', {
+    symbol: token.symbol,
+    calculatedScore: riskScore,
+    marketCap: token.marketCap,
+    liquidity: token.liquidity,
+    factors: riskFactors
+  });
 
-  // Calculate key metrics with safe defaults
-  const buyRatio = token.buyRatio ?? 0;
-  const volLiqRatio = token.volume24h / token.liquidity;
-  const priceAccel = token.hourlyAcceleration ?? 0;
-
-  // If there are serious safety issues, mark as AVOID
-  if (safetyIssues.length >= 2) {
-    return {
-      signal: 'AVOID',
-      confidence: 90,
-      reasons: [
-        '⛔️ Multiple risk factors detected',
-        ...allWarnings
-      ],
-      indicators: {
-        buyPressure: { value: buyRatio, trend: 'down' },
-        volumeMetric: { value: volLiqRatio, trend: 'down' },
-        priceMovement: { value: priceAccel, trend: 'down' }
-      }
-    };
-  }
+  const strategy = suggestStrategy(token);
+  
+  const allWarnings = [
+    ...maturityReasons,
+    ...volumeInsights,
+    ...safetyIssues,
+    ...exitSignals,
+    ...marketCapWarnings,
+    ...whaleWarnings,
+    ...priceActionInsights,
+    ...riskFactors.map(f => `  • ${f}`),
+    ...strategy.reasoning
+  ];
 
   // Calculate signal strength
   let signal: SignalStrength = 'HOLD';
-  let confidence = 50; // Base confidence
+  let confidence = 50;
+
+  // Get values with safe defaults
+  const buyRatio = token.buyRatio ?? 0;
+  const marketCap = token.marketCap ?? 0;
+  const volLiqRatio = token.volume24h / token.liquidity;
+  const acceleration = token.hourlyAcceleration ?? 0;
 
   // Strong Buy Conditions
   if (
     buyRatio >= TRADING_SIGNALS.BUY.STRONG.BUY_PRESSURE &&
     volLiqRatio >= TRADING_SIGNALS.BUY.STRONG.VOLUME_SPIKE &&
-    priceAccel >= TRADING_SIGNALS.BUY.STRONG.PRICE_ACCEL
+    acceleration >= TRADING_SIGNALS.BUY.STRONG.PRICE_ACCEL
   ) {
     signal = 'STRONG_BUY';
     confidence = 90;
@@ -382,7 +584,7 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   else if (
     buyRatio >= TRADING_SIGNALS.BUY.MODERATE.BUY_PRESSURE &&
     volLiqRatio >= TRADING_SIGNALS.BUY.MODERATE.VOLUME_SPIKE &&
-    priceAccel >= TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL
+    acceleration >= TRADING_SIGNALS.BUY.MODERATE.PRICE_ACCEL
   ) {
     signal = 'MODERATE_BUY';
     confidence = 70;
@@ -391,7 +593,7 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   else if (
     buyRatio <= TRADING_SIGNALS.SELL.STRONG.BUY_PRESSURE_DROP ||
     volLiqRatio <= TRADING_SIGNALS.SELL.STRONG.VOLUME_DROP ||
-    priceAccel <= TRADING_SIGNALS.SELL.STRONG.PRICE_DECEL
+    acceleration <= TRADING_SIGNALS.SELL.STRONG.PRICE_DECEL
   ) {
     signal = 'STRONG_SELL';
     confidence = 85;
@@ -400,7 +602,7 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   else if (
     buyRatio <= TRADING_SIGNALS.SELL.MODERATE.BUY_PRESSURE_DROP ||
     volLiqRatio <= TRADING_SIGNALS.SELL.MODERATE.VOLUME_DROP ||
-    priceAccel <= TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL
+    acceleration <= TRADING_SIGNALS.SELL.MODERATE.PRICE_DECEL
   ) {
     signal = 'CONSIDER_SELL';
     confidence = 65;
@@ -410,6 +612,9 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
     signal,
     confidence,
     reasons: allWarnings,
+    score: riskScore,
+    strategy: strategy.recommendation,
+    priceTargets: strategy.targets,
     indicators: {
       buyPressure: {
         value: buyRatio,
@@ -420,8 +625,8 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
         trend: getVolumeTrend(volLiqRatio)
       },
       priceMovement: {
-        value: priceAccel,
-        trend: getPriceTrend(priceAccel)
+        value: acceleration,
+        trend: getPriceTrend(acceleration)
       }
     }
   };

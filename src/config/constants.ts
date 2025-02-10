@@ -109,4 +109,85 @@ export const TRADING_SIGNALS = {
       PRICE_DECEL: 0.6,         // Lower from 0.7
     }
   }
+};
+
+export const RISK_SCORE = {
+  WEIGHTS: {
+    MARKET_CAP: 25,    // 25% of total score
+    LIQUIDITY: 25,     // 25% of total score
+    VOLUME: 20,        // 20% of total score
+    TRANSACTIONS: 15,  // 15% of total score
+    WHALE_RISK: 15     // 15% of total score
+  },
+  THRESHOLDS: {
+    LOW_RISK: 30,      // Score below 30 is low risk
+    MEDIUM_RISK: 60,   // Score below 60 is medium risk
+    HIGH_RISK: 100     // Score above 60 is high risk
+  }
+};
+
+export const PRICE_ACTION = {
+  THRESHOLDS: {
+    HEALTHY_GROWTH: {
+      MIN: 20,   // 20% minimum growth
+      MAX: 100   // 100% maximum healthy growth
+    },
+    MOMENTUM: {
+      REVERSAL: -10,    // -10% momentum signals reversal
+      STRONG: 15        // +15% momentum signals strength
+    },
+    CONSOLIDATION: {
+      RANGE: 5,         // 5% price movement
+      MIN_VOL_RATIO: 0.5  // 50% volume/liquidity ratio minimum
+    }
+  }
+};
+
+export const TOKEN_MATURITY = {
+  THRESHOLDS: {
+    NEW_TOKEN: {
+      MAX_AGE_HOURS: 48,      // Less than 48 hours old
+      MAX_HOLDERS: 1000,      // Less than 1000 holders
+      MAX_MARKET_CAP: 10_000_000  // Under $10M market cap
+    },
+    ESTABLISHED_TOKEN: {
+      MIN_AGE_HOURS: 168,     // At least 1 week old
+      MIN_HOLDERS: 5000,      // Over 5000 holders
+      MIN_MARKET_CAP: 50_000_000  // Over $50M market cap
+    }
+  }
+};
+
+export const VOLUME_ANALYSIS = {
+  THRESHOLDS: {
+    BUY_SELL_RATIO: {
+      VERY_BULLISH: 3.0,    // Buy volume 3x sell volume
+      BULLISH: 1.5,         // Buy volume 1.5x sell volume
+      BEARISH: 0.67,        // Sell volume 1.5x buy volume
+      VERY_BEARISH: 0.33    // Sell volume 3x buy volume
+    },
+    VOLUME_INCREASE: {
+      SIGNIFICANT: 2.0,     // Volume doubled
+      MAJOR: 5.0           // Volume 5x increase
+    }
+  }
+};
+
+export const TRADING_STRATEGY = {
+  PRICE_TARGETS: {
+    RESISTANCE_MULTIPLIER: 1.25,  // 25% upside target
+    SUPPORT_MULTIPLIER: 0.85,     // 15% downside risk
+    MIN_RISK_REWARD: 1.5         // Minimum reward/risk ratio
+  },
+  MARKET_CAP_TIERS: {
+    MICRO: 10_000_000,        // < $10M
+    SMALL: 100_000_000,       // < $100M
+    MEDIUM: 1_000_000_000,    // < $1B
+    LARGE: 10_000_000_000     // > $1B
+  },
+  ENTRY_CONDITIONS: {
+    STRONG_BUY_RATIO: 0.75,   // 75% buys
+    MIN_LIQUIDITY: 500_000,   // $500k minimum
+    MAX_VOLATILITY: 100       // 100% max daily change
+  }
 }; 
