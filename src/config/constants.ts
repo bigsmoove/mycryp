@@ -2,10 +2,25 @@ export const SOLANA_RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com';
 export const DEXSCREENER_API = 'https://api.dexscreener.com/';
 
 export const SAFETY_THRESHOLDS = {
-  MIN_LIQUIDITY_USD: 50000, // Minimum $50k liquidity
-  MIN_VOLUME_24H: 10000,    // Minimum $10k daily volume
-  MIN_VOLUME_LIQUIDITY_RATIO: 0.5, // Healthy trading volume ratio
-  MIN_PRICE_CHANGE: 0,      // Only positive momentum
+  MARKET_CAP: {
+    MIN_VIABLE: 500_000,    // $500k minimum
+    SWEET_SPOT: 100_000_000 // $100M - good exit point
+  },
+  LIQUIDITY: {
+    MIN: 100_000,    // $100k minimum liquidity
+    HEALTHY: 500_000 // $500k healthy liquidity
+  },
+  VOLUME: {
+    MIN_24H: 500_000,  // $500k minimum daily volume
+    HEALTHY_24H: 750_000 // $750k healthy daily volume
+  },
+  TRANSACTIONS: {
+    MIN_24H: 150 // Minimum daily transactions
+  },
+  RATIOS: {
+    MAX_VOL_LIQ: 10,  // Maximum healthy volume/liquidity ratio
+    MIN_BUY_RATIO: 0.4 // Minimum healthy buy ratio
+  }
 };
 
 // Updated patterns to catch more potential scams

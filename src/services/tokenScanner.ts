@@ -67,37 +67,47 @@ export class TokenScanner {
       let score = 100;
       let momentumScore = 0;
 
-      // Get token data from DexScreener
-      const { data: dexData } = await axios.get(
-        `${DEXSCREENER_API}/tokens/v1/solana/${tokenAddress}`
-      );
-
-      // Enhanced security checks
-      if (!this.checkLiquidity(dexData)) {
-        reasons.push('Insufficient liquidity');
+      // Check liquidity
+      const liquidityCheck = await this.checkLiquidity(tokenAddress);
+      if (!liquidityCheck.isSecure) {
+        reasons.push(liquidityCheck.reason || 'Insufficient liquidity');
         score -= 30;
       }
 
-      // Check liquidity concentration
-      if (this.isLiquidityConcentrated(dexData)) {
+      // Get token data from DexScreener for other checks
+      const pairData = await this.getPairData(tokenAddress);
+      if (!pairData) {
+        reasons.push('Unable to fetch token data');
+        return {
+          isSecure: false,
+          reasons,
+          warnings,
+          score: 0,
+          momentumScore: 0,
+          riskLevel: 'High'
+        };
+      }
+
+      // Rest of the existing checks using pairData
+      if (this.isLiquidityConcentrated({ pairs: [pairData] })) {
         warnings.push('High liquidity concentration in single pool');
         score -= 15;
       }
 
       // Check for suspicious trading patterns
-      if (this.hasSuspiciousTrading(dexData)) {
+      if (this.hasSuspiciousTrading({ pairs: [pairData] })) {
         warnings.push('Suspicious trading patterns detected');
         score -= 25;
       }
 
       // Momentum and volatility checks
-      const volatilityScore = this.calculateVolatility(dexData);
+      const volatilityScore = this.calculateVolatility({ pairs: [pairData] });
       if (volatilityScore > 50) {
         warnings.push('High price volatility');
         score -= 20;
       }
 
-      momentumScore = this.calculateMomentumScore(dexData);
+      momentumScore = this.calculateMomentumScore({ pairs: [pairData] });
 
       return {
         isSecure: score >= 70,
@@ -120,9 +130,26 @@ export class TokenScanner {
     }
   }
 
-  private checkLiquidity(dexData: DexData): boolean {
-    const liquidityUsd = dexData.liquidity?.usd ?? 0;
-    return liquidityUsd >= SAFETY_THRESHOLDS.MIN_LIQUIDITY_USD;
+  private async checkLiquidity(tokenAddress: string): Promise<{ isSecure: boolean; reason?: string }> {
+    try {
+      const pairData = await this.getPairData(tokenAddress);
+      const liquidity = pairData?.liquidity?.usd || 0;
+
+      if (liquidity < SAFETY_THRESHOLDS.LIQUIDITY.MIN) {
+        return {
+          isSecure: false,
+          reason: `Low liquidity ($${liquidity.toLocaleString()}). Minimum required: $${SAFETY_THRESHOLDS.LIQUIDITY.MIN.toLocaleString()}`
+        };
+      }
+
+      return { isSecure: true };
+    } catch (error) {
+      console.error('Error checking liquidity:', error);
+      return {
+        isSecure: false,
+        reason: 'Unable to verify token liquidity'
+      };
+    }
   }
 
   private isLiquidityConcentrated(dexData: DexData): boolean {
@@ -191,5 +218,23 @@ export class TokenScanner {
     if (safetyScore >= 80 && momentumScore < 70) return 'Low';
     if (safetyScore >= 60 && momentumScore < 85) return 'Medium';
     return 'High';
+  }
+
+  private async getPairData(tokenAddress: string): Promise<DexPair | null> {
+    try {
+      const response = await axios.get(
+        `${DEXSCREENER_API}/latest/dex/tokens/${tokenAddress}`
+      );
+
+      if (!response.data?.pairs || response.data.pairs.length === 0) {
+        return null;
+      }
+
+      // Return the first pair's data (usually the most liquid pair)
+      return response.data.pairs[0];
+    } catch (error) {
+      console.error('Error fetching pair data:', error);
+      return null;
+    }
   }
 } 

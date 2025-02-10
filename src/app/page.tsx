@@ -93,6 +93,7 @@ export default function Home() {
         case 'STRONG_BUY': return 'bg-green-500';
         case 'MODERATE_BUY': return 'bg-green-300';
         case 'HOLD': return 'bg-yellow-400';
+        case 'AVOID': return 'bg-orange-500';
         case 'CONSIDER_SELL': return 'bg-red-300';
         case 'STRONG_SELL': return 'bg-red-500';
         default: return 'bg-gray-400';

@@ -7,7 +7,13 @@ export interface TokenIndicators {
   priceAccelerationAlert?: boolean;
 }
 
-export type SignalStrength = 'STRONG_BUY' | 'MODERATE_BUY' | 'HOLD' | 'CONSIDER_SELL' | 'STRONG_SELL';
+export type SignalStrength = 
+  | 'STRONG_BUY' 
+  | 'MODERATE_BUY' 
+  | 'HOLD' 
+  | 'AVOID'
+  | 'CONSIDER_SELL' 
+  | 'STRONG_SELL';
 
 export interface TradingSignal {
   signal: SignalStrength;
