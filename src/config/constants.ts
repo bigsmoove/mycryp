@@ -22,6 +22,12 @@ export const SAFETY_THRESHOLDS = {
   RATIOS: {
     MAX_VOL_LIQ: 10,  // Maximum healthy volume/liquidity ratio
     MIN_BUY_RATIO: 0.4 // Minimum healthy buy ratio
+  },
+  WHALE: {
+    TRANSACTION_IMPACT: 0.05,    // 5% of liquidity per transaction
+    VOLUME_LIQUIDITY_MULT: 3,    // Volume exceeding 3x liquidity
+    LARGE_HOLDER_PERCENT: 0.05,  // 5% or more of supply
+    MAX_WALLET_CONCENTRATION: 0.1 // 10% max in single wallet
   }
 };
 

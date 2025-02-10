@@ -78,6 +78,12 @@ const SAFETY_THRESHOLDS = {
     HEALTHY: 5_000_000,       // $5M healthy range
     SWEET_SPOT: 100_000_000,  // $100M good exit point
     MAX_UPSIDE: 150_000_000   // $150M limited upside
+  },
+  WHALE: {
+    TRANSACTION_IMPACT: 0.05,    // 5% of liquidity per transaction
+    VOLUME_LIQUIDITY_MULT: 3,    // Volume exceeding 3x liquidity
+    LARGE_HOLDER_PERCENT: 0.05,  // 5% or more of supply
+    MAX_WALLET_CONCENTRATION: 0.1 // 10% max in single wallet
   }
 };
 
@@ -334,7 +340,8 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   const safetyIssues = analyzeSafetyMetrics(token);
   const exitSignals = getExitSignals(token);
   const marketCapWarnings = analyzeMarketCap(token);
-  const allWarnings = [...safetyIssues, ...exitSignals, ...marketCapWarnings];
+  const whaleWarnings = detectWhaleActivity(token);
+  const allWarnings = [...safetyIssues, ...exitSignals, ...marketCapWarnings, ...whaleWarnings];
 
   // Calculate key metrics with safe defaults
   const buyRatio = token.buyRatio ?? 0;
@@ -523,6 +530,37 @@ const analyzeMarketCap = (token: TokenMetrics): string[] => {
 
   if (marketCap > SAFETY_THRESHOLDS.MARKET_CAP.MAX_UPSIDE) {
     warnings.push(`📊 Market cap above optimal range ($${(marketCap / 1_000_000).toFixed(1)}M) - limited upside potential`);
+  }
+
+  return warnings;
+};
+
+const detectWhaleActivity = (token: TokenMetrics): string[] => {
+  const warnings: string[] = [];
+  
+  // Calculate average transaction value
+  const totalTxns = (token.txns?.h24?.buys ?? 0) + (token.txns?.h24?.sells ?? 0);
+  const avgTxnValue = totalTxns > 0 ? token.volume24h / totalTxns : 0;
+  
+  // Calculate impact on liquidity
+  const liquidityImpact = avgTxnValue / token.liquidity;
+  
+  // Check for large transactions relative to liquidity
+  if (liquidityImpact > SAFETY_THRESHOLDS.WHALE.TRANSACTION_IMPACT) {
+    warnings.push(`🐋 Large transactions (${(liquidityImpact * 100).toFixed(1)}% of liquidity) - whale activity detected`);
+  }
+  
+  // Check for excessive volume relative to liquidity
+  const volumeLiquidityRatio = token.volume24h / token.liquidity;
+  if (volumeLiquidityRatio > SAFETY_THRESHOLDS.WHALE.VOLUME_LIQUIDITY_MULT) {
+    warnings.push(`⚠️ Volume exceeds ${SAFETY_THRESHOLDS.WHALE.VOLUME_LIQUIDITY_MULT}x liquidity - possible manipulation`);
+  }
+  
+  // Check for recent large sells
+  const sellCount = token.txns?.h24?.sells ?? 0;
+  const avgSellImpact = sellCount > 0 ? (token.volume24h * 0.5) / (sellCount * token.liquidity) : 0;
+  if (avgSellImpact > SAFETY_THRESHOLDS.WHALE.TRANSACTION_IMPACT) {
+    warnings.push('🚨 Large sell orders detected - potential whale distribution');
   }
 
   return warnings;
