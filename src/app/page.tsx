@@ -93,45 +93,75 @@ export default function Home() {
     const summary = createSignalSummary(token);
 
     return (
-      <div className="p-4 border rounded-lg">
-        <div className="flex justify-between items-center">
-          <h2>{token.name} ({token.symbol})</h2>
-          <span className={`px-3 py-1 rounded ${
-            summary.verdict === 'STRONG_BUY' ? 'bg-green-500' :
-            summary.verdict === 'MODERATE_BUY' ? 'bg-green-300' :
-            summary.verdict === 'AVOID' ? 'bg-red-500' :
-            summary.verdict === 'CAUTION' ? 'bg-yellow-500' : 'bg-gray-300'
-          }`}>
+      <div className="p-4 border rounded-lg bg-gray-800/50">
+        {/* Header with Name and Status */}
+        <div className="flex justify-between items-center mb-3">
+          <div>
+            <h2 className="text-xl font-bold">{token.name} ({token.symbol})</h2>
+            <div className="text-sm text-gray-400 flex items-center">
+              {token.address.slice(0, 16)}...
+              <button 
+                onClick={() => navigator.clipboard.writeText(token.address)}
+                className="ml-2 px-2 py-0.5 text-xs bg-gray-700 rounded hover:bg-gray-600"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+          <span className={classNames(
+            'px-3 py-1 rounded font-bold',
+            {
+              'bg-green-500': summary.verdict === 'STRONG_BUY',
+              'bg-green-300': summary.verdict === 'MODERATE_BUY',
+              'bg-red-500': summary.verdict === 'AVOID',
+              'bg-yellow-500': summary.verdict === 'CAUTION',
+              'bg-gray-300': summary.verdict === 'NEUTRAL'
+            }
+          )}>
             {summary.verdict}
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-4">
+        {/* Key Metrics Row */}
+        <div className="grid grid-cols-3 gap-4 mb-4">
           <div>
-            <h3 className="font-bold text-green-500">Bullish Factors</h3>
+            <div className="text-gray-400 text-sm">Buy Pressure</div>
+            <div className="text-lg font-mono">{summary.keyMetrics.buyPressure}</div>
+          </div>
+          <div>
+            <div className="text-gray-400 text-sm">Vol/Liq Ratio</div>
+            <div className="text-lg font-mono">{(token.volume24h / token.liquidity).toFixed(2)}x</div>
+          </div>
+          <div>
+            <div className="text-gray-400 text-sm">Price</div>
+            <div className="text-lg font-mono">${token.price.toFixed(8)}</div>
+          </div>
+        </div>
+
+        {/* Analysis Section */}
+        <div className="grid grid-cols-2 gap-6">
+          <div>
+            <h3 className="font-bold text-green-500 mb-2">Bullish Factors</h3>
             {summary.bullishFactors.map((factor: string) => (
-              <div key={factor}>{factor}</div>
+              <div key={factor} className="text-sm mb-2">{factor}</div>
             ))}
           </div>
           <div>
-            <h3 className="font-bold text-red-500">Risk Factors</h3>
+            <h3 className="font-bold text-red-500 mb-2">Risk Factors</h3>
             {summary.bearishFactors.map((factor: string) => (
-              <div key={factor}>{factor}</div>
+              <div key={factor} className="text-sm mb-2">{factor}</div>
             ))}
           </div>
         </div>
 
-        {summary.tradingPlan && (
-          <div className="mt-4 p-2 bg-blue-100 rounded">
-            <h3 className="font-bold">Trading Plan</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div>Entry: {summary.tradingPlan.entry}</div>
-              <div>Target: {summary.tradingPlan.target}</div>
-              <div>Stop: {summary.tradingPlan.stopLoss}</div>
-              <div>Size: {summary.tradingPlan.position}</div>
-            </div>
+        {/* Bottom Stats */}
+        <div className="mt-4 pt-3 border-t border-gray-700 grid grid-cols-3 text-sm text-gray-400">
+          <div>Volume 24h: ${(token.volume24h / 1000).toFixed(1)}k</div>
+          <div>Liquidity: ${(token.liquidity / 1000).toFixed(1)}k</div>
+          <div className={token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}>
+            24h Change: {token.priceChange24h.toFixed(2)}%
           </div>
-        )}
+        </div>
       </div>
     );
   };
