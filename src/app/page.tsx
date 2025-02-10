@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { TokenScanner } from '../services/tokenScanner';
-import { fetchTrendingTokens } from '../services/dexScreenerService';
+import { fetchTrendingTokens, createSignalSummary } from '../services/dexScreenerService';
 import TokenDetails from '../components/TokenDetails';
 import type { TrendingToken, SignalStrength } from '../types/token';
 import { NotificationService } from '../services/notificationService';
@@ -89,170 +89,49 @@ export default function Home() {
     );
   };
 
-  const TrendingTokenCard = ({ token }: { token: TrendingToken }) => {
-    // Debug logging
-    console.log('Token card data:', {
-      symbol: token.symbol,
-      tradingSignal: token.tradingSignal,
-      score: token.tradingSignal?.score
-    });
-
-    const getSignalColor = (signal: SignalStrength) => {
-      switch (signal) {
-        case 'STRONG_BUY': return 'bg-green-500';
-        case 'MODERATE_BUY': return 'bg-green-300';
-        case 'HOLD': return 'bg-yellow-400';
-        case 'AVOID': return 'bg-orange-500';
-        case 'CONSIDER_SELL': return 'bg-red-300';
-        case 'STRONG_SELL': return 'bg-red-500';
-        default: return 'bg-gray-400';
-      }
-    };
-
-    const getTrendArrow = (trend: 'up' | 'down' | 'neutral') => {
-      switch (trend) {
-        case 'up': return '↑';
-        case 'down': return '↓';
-        case 'neutral': return '→';
-      }
-    };
-
-    const riskScore = token.tradingSignal?.score;
+  const TokenCard = ({ token }: { token: TrendingToken }) => {
+    const summary = createSignalSummary(token);
 
     return (
-      <div className="p-4 bg-gray-800 rounded-lg">
-        {/* Token Header */}
-        <div className="flex justify-between items-start mb-4">
+      <div className="p-4 border rounded-lg">
+        <div className="flex justify-between items-center">
+          <h2>{token.name} ({token.symbol})</h2>
+          <span className={`px-3 py-1 rounded ${
+            summary.verdict === 'STRONG_BUY' ? 'bg-green-500' :
+            summary.verdict === 'MODERATE_BUY' ? 'bg-green-300' :
+            summary.verdict === 'AVOID' ? 'bg-red-500' :
+            summary.verdict === 'CAUTION' ? 'bg-yellow-500' : 'bg-gray-300'
+          }`}>
+            {summary.verdict}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mt-4">
           <div>
-            <h3 className="text-lg font-semibold">{token.name} ({token.symbol})</h3>
-            <p className="text-sm text-gray-400">Price: ${token.price.toFixed(8)}</p>
-          </div>
-          
-          {/* Trading Signal Badge */}
-          {token.tradingSignal?.signal && (
-            <div className={`px-3 py-1 rounded-full text-white text-sm font-bold ${
-              getSignalColor(token.tradingSignal.signal)
-            }`}>
-              {token.tradingSignal.signal.replace('_', ' ')}
-            </div>
-          )}
-        </div>
-
-        {/* Key Metrics Grid */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {/* Buy Pressure */}
-          <div className="bg-gray-700 p-2 rounded">
-            <div className="flex justify-between items-center text-sm text-gray-400">
-              <span>Buy Pressure</span>
-              {token.tradingSignal?.indicators.buyPressure.trend && (
-                <span>{getTrendArrow(token.tradingSignal.indicators.buyPressure.trend)}</span>
-              )}
-            </div>
-            <p className="font-semibold">
-              {token.tradingSignal?.indicators.buyPressure.value.toFixed(2) ?? '0.00'}
-            </p>
-          </div>
-
-          {/* Volume Metric */}
-          <div className="bg-gray-700 p-2 rounded">
-            <div className="flex justify-between items-center text-sm text-gray-400">
-              <span>Vol/Liq Ratio</span>
-              {token.tradingSignal?.indicators.volumeMetric.trend && (
-                <span>{getTrendArrow(token.tradingSignal.indicators.volumeMetric.trend)}</span>
-              )}
-            </div>
-            <p className="font-semibold">
-              {token.tradingSignal?.indicators.volumeMetric.value.toFixed(2) ?? '0.00'}
-            </p>
-          </div>
-
-          {/* Current Price */}
-          <div className="bg-gray-700 p-2 rounded">
-            <div className="flex justify-between items-center text-sm text-gray-400">
-              <span>Current Price</span>
-              <span>{token.priceChange24h >= 0 ? '↑' : '↓'}</span>
-            </div>
-            <p className="font-semibold">
-              ${token.price.toFixed(8)}
-            </p>
-          </div>
-        </div>
-
-        {/* Signal Reasons/Warnings in 2 columns */}
-        {token.tradingSignal?.reasons && token.tradingSignal.reasons.length > 0 && (
-          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
-            {token.tradingSignal.reasons.map((reason, index) => (
-              <p 
-                key={index} 
-                className={classNames(
-                  "text-sm text-gray-300",
-                  // Add ellipsis if text is too long
-                  "overflow-hidden text-ellipsis whitespace-nowrap",
-                  // Add tooltip for full text on hover
-                  "hover:whitespace-normal hover:text-clip"
-                )}
-                title={reason} // Show full text on hover
-              >
-                • {reason}
-              </p>
+            <h3 className="font-bold text-green-500">Bullish Factors</h3>
+            {summary.bullishFactors.map((factor: string) => (
+              <div key={factor}>{factor}</div>
             ))}
           </div>
+          <div>
+            <h3 className="font-bold text-red-500">Risk Factors</h3>
+            {summary.bearishFactors.map((factor: string) => (
+              <div key={factor}>{factor}</div>
+            ))}
+          </div>
+        </div>
+
+        {summary.tradingPlan && (
+          <div className="mt-4 p-2 bg-blue-100 rounded">
+            <h3 className="font-bold">Trading Plan</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div>Entry: {summary.tradingPlan.entry}</div>
+              <div>Target: {summary.tradingPlan.target}</div>
+              <div>Stop: {summary.tradingPlan.stopLoss}</div>
+              <div>Size: {summary.tradingPlan.position}</div>
+            </div>
+          </div>
         )}
-
-        {/* Token Stats */}
-        <div className="mt-4 grid grid-cols-3 gap-2 text-sm text-gray-400">
-          <p>Volume 24h: ${token.volume24h.toLocaleString()}</p>
-          <p>Liquidity: ${token.liquidity.toLocaleString()}</p>
-          <p>
-            24h Change: 
-            <span className={token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}>
-              {' '}{token.priceChange24h.toFixed(2)}%
-            </span>
-          </p>
-        </div>
-
-        {/* Risk Score and Confidence Section */}
-        <div className="mt-2 pt-2 border-t border-gray-700">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-400">
-              Risk Score: 
-              <span className={classNames('ml-2 font-bold', {
-                'text-green-400': riskScore && riskScore <= RISK_SCORE.THRESHOLDS.LOW_RISK,
-                'text-yellow-400': riskScore && riskScore <= RISK_SCORE.THRESHOLDS.MEDIUM_RISK,
-                'text-red-400': riskScore && riskScore > RISK_SCORE.THRESHOLDS.MEDIUM_RISK,
-                'text-gray-400': !riskScore
-              })}>
-                {riskScore ? `${riskScore}/100` : 'N/A'}
-              </span>
-            </p>
-            <p className="text-sm text-gray-400">
-              Confidence: {token.tradingSignal?.confidence ?? 0}%
-            </p>
-          </div>
-        </div>
-
-        {/* Address Section */}
-        <div className="mt-2 pt-2 border-t border-gray-700">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-gray-500">
-              {token.address.slice(0, 8)}...{token.address.slice(-8)}
-            </span>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(token.address);
-              }}
-              className="text-xs text-blue-400 hover:text-blue-300"
-            >
-              Copy
-            </button>
-            <button
-              onClick={() => handleScan(token.address)}
-              className="ml-auto px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-md text-white text-xs transition-colors"
-            >
-              Details
-            </button>
-          </div>
-        </div>
       </div>
     );
   };
@@ -294,7 +173,7 @@ export default function Home() {
           ) : (
             <div className="grid gap-4">
               {trendingTokens.map((token) => (
-                <TrendingTokenCard key={token.address} token={token} />
+                <TokenCard key={token.address} token={token} />
               ))}
             </div>
           )}

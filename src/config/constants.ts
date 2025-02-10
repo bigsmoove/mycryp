@@ -190,4 +190,95 @@ export const TRADING_STRATEGY = {
     MIN_LIQUIDITY: 500_000,   // $500k minimum
     MAX_VOLATILITY: 100       // 100% max daily change
   }
+};
+
+export const CHART_PATTERNS = {
+  BULLISH: {
+    BREAKOUT: {
+      MIN_GAIN: 10,        // 10% minimum price gain
+      VOLUME_SPIKE: 2,     // 2x normal volume
+      MIN_BUY_RATIO: 0.65  // 65% buys minimum
+    },
+    ACCUMULATION: {
+      MAX_RANGE: 5,        // 5% price range
+      MIN_BUY_RATIO: 0.7,  // 70% buys
+      MIN_DURATION: 60     // 60 minutes minimum
+    },
+    MOMENTUM: {
+      MIN_ACCELERATION: 15,  // 15% acceleration
+      SUSTAINED_MINS: 30,    // Sustained for 30 mins
+      VOLUME_INCREASE: 1.5   // 50% volume increase
+    }
+  },
+  BEARISH: {
+    DISTRIBUTION: {
+      SELL_SIZE: 0.05,     // 5% of liquidity per sale
+      TIME_WINDOW: 60,     // Look back 60 minutes
+      MAX_BUY_RATIO: 0.4   // Less than 40% buys
+    },
+    BREAKDOWN: {
+      SUPPORT_BREAK: -10,  // 10% below support
+      VOLUME_SPIKE: 2,     // 2x volume on breakdown
+      MAX_BUY_RATIO: 0.3   // Less than 30% buys
+    },
+    EXHAUSTION: {
+      MIN_GAIN: 50,        // 50% gain in period
+      VOLUME_DROP: 0.5,    // 50% volume drop
+      MOMENTUM_CHANGE: -20 // Momentum shifted negative
+    }
+  }
+};
+
+export const SMART_MONEY = {
+  THRESHOLDS: {
+    LARGE_TX: 50_000,      // $50k+ transactions
+    WHALE_ENTRY: 100_000,  // $100k+ single entry
+    ACCUMULATION: {
+      TIME_WINDOW: 60,     // 60 minute window
+      MIN_BUYS: 3,         // At least 3 large buys
+      MAX_SELLS: 1,        // Maximum 1 large sell
+      MIN_BUY_RATIO: 0.7   // 70% buys minimum
+    },
+    DISTRIBUTION: {
+      LARGE_SELLS: 3,      // 3+ large sells
+      MAX_BUY_RATIO: 0.4,  // Less than 40% buys
+      VOLUME_SPIKE: 2      // 2x normal volume
+    }
+  },
+  SIGNALS: {
+    CONFIDENCE: {
+      HIGH: 90,
+      MEDIUM: 70,
+      LOW: 50
+    }
+  }
+};
+
+export const TIME_ANALYSIS = {
+  TRADING_WINDOWS: {
+    UTC: {
+      PEAK_HOURS: [
+        { start: 13, end: 21 },  // 13:00-21:00 UTC (US trading hours)
+        { start: 1, end: 9 }     // 01:00-09:00 UTC (Asia trading hours)
+      ],
+      QUIET_HOURS: [
+        { start: 22, end: 0 },   // Low volume periods
+        { start: 10, end: 12 }
+      ]
+    }
+  },
+  VOLATILITY: {
+    HIGH: {
+      start: 14,    // 14:00 UTC
+      end: 20,      // 20:00 UTC
+      multiplier: 1.5  // Adjust position size
+    },
+    LOW: {
+      multiplier: 0.7  // Reduce position size
+    }
+  },
+  MOMENTUM: {
+    MIN_SUSTAINED_MINS: 30,  // Minimum time for trend confirmation
+    ACCELERATION_THRESHOLD: 15  // % change in momentum
+  }
 }; 

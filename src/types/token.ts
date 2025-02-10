@@ -29,6 +29,15 @@ export interface TradingSignal {
     stopLoss: number;
     targetProfit: number;
   };
+  entryPlan?: {
+    recommendation: string;
+    sizing: {
+      initial: number;
+      secondary: number;
+      final: number;
+    };
+    entry: number;
+  };
   indicators: {
     buyPressure: {
       value: number;

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { DEXSCREENER_API } from '../config/constants';
-import { ALERT_THRESHOLDS, TRADING_SIGNALS, PRICE_ACTION, TOKEN_MATURITY, VOLUME_ANALYSIS, TRADING_STRATEGY } from '../config/constants';
+import { ALERT_THRESHOLDS, TRADING_SIGNALS, PRICE_ACTION, TOKEN_MATURITY, VOLUME_ANALYSIS, TRADING_STRATEGY, CHART_PATTERNS, SMART_MONEY } from '../config/constants';
 import { TrendingToken, SignalStrength, TradingSignal } from '../types/token';
+import { analyzeTimeWindow, analyzeMomentumSustainability } from './timeAnalysisService';
 
 interface TokenProfile {
   tokenAddress: string;
@@ -84,6 +85,26 @@ const SAFETY_THRESHOLDS = {
     VOLUME_LIQUIDITY_MULT: 3,    // Volume exceeding 3x liquidity
     LARGE_HOLDER_PERCENT: 0.05,  // 5% or more of supply
     MAX_WALLET_CONCENTRATION: 0.1 // 10% max in single wallet
+  }
+};
+
+const ENTRY_STRATEGY = {
+  SCALING: {
+    INITIAL: 0.3,     // 30% of planned position
+    SECONDARY: 0.3,   // Another 30% on confirmation
+    FINAL: 0.4        // Final 40% when fully confident
+  },
+  CONDITIONS: {
+    INITIAL: {
+      MIN_BUY_RATIO: 0.65,    // 65% buys minimum
+      MAX_VOLATILITY: 50,     // Max 50% daily change
+      MIN_LIQUIDITY: 250_000  // $250k minimum liquidity
+    },
+    ADD: {
+      PRICE_DIP: -5,          // Buy more on 5% dips
+      VOLUME_INCREASE: 1.5,    // 50% volume increase
+      STRONG_BOUNCE: 3        // 3% bounce from support
+    }
   }
 };
 
@@ -527,10 +548,104 @@ const suggestStrategy = (token: TokenMetrics): {
   };
 };
 
-// Update analyzeTradingSignals to include strategy suggestions
+const detectPatterns = (token: TokenMetrics): string[] => {
+  const patterns: string[] = [];
+  const { BULLISH, BEARISH } = CHART_PATTERNS;
+  
+  // Bullish Breakout Pattern
+  if (
+    token.priceChange24h > BULLISH.BREAKOUT.MIN_GAIN && 
+    token.volume24h > token.liquidity * BULLISH.BREAKOUT.VOLUME_SPIKE &&
+    (token.buyRatio ?? 0) > BULLISH.BREAKOUT.MIN_BUY_RATIO
+  ) {
+    patterns.push('🚀 Bullish Breakout Pattern Detected');
+    patterns.push(`  • ${token.priceChange24h.toFixed(1)}% price increase`);
+    patterns.push(`  • ${(token.volume24h / token.liquidity).toFixed(1)}x volume spike`);
+  }
+  
+  // Accumulation Pattern
+  if (
+    Math.abs(token.priceChange24h) < BULLISH.ACCUMULATION.MAX_RANGE && 
+    (token.buyRatio ?? 0) > BULLISH.ACCUMULATION.MIN_BUY_RATIO &&
+    token.volume24h > SAFETY_THRESHOLDS.VOLUME.MIN_24H
+  ) {
+    patterns.push('📈 Accumulation Pattern - Potential Breakout Soon');
+    patterns.push(`  • Strong buy ratio: ${((token.buyRatio ?? 0) * 100).toFixed(1)}%`);
+    patterns.push(`  • Tight price range: ${Math.abs(token.priceChange24h).toFixed(1)}%`);
+  }
+  
+  // Bearish Distribution Pattern
+  if (
+    (token.buyRatio ?? 1) < BEARISH.DISTRIBUTION.MAX_BUY_RATIO &&
+    token.volume24h > token.liquidity * BEARISH.DISTRIBUTION.SELL_SIZE
+  ) {
+    patterns.push('🚨 Distribution Pattern - Possible Top');
+    patterns.push(`  • Heavy selling: ${((1 - (token.buyRatio ?? 0)) * 100).toFixed(1)}% sells`);
+    patterns.push(`  • Large volume: ${(token.volume24h / token.liquidity).toFixed(1)}x liquidity`);
+  }
+  
+  // Momentum Pattern
+  if (
+    (token.hourlyAcceleration ?? 0) > BULLISH.MOMENTUM.MIN_ACCELERATION &&
+    token.volume24h > token.liquidity * BULLISH.MOMENTUM.VOLUME_INCREASE
+  ) {
+    patterns.push('💫 Strong Momentum Pattern');
+    patterns.push(`  • Acceleration: ${(token.hourlyAcceleration ?? 0).toFixed(1)}%`);
+    patterns.push(`  • Volume increasing`);
+  }
+
+  return patterns;
+};
+
+const analyzeSmartMoney = (token: TokenMetrics): { 
+  insights: string[];
+  confidence: number;
+} => {
+  const insights: string[] = [];
+  let confidence = SMART_MONEY.SIGNALS.CONFIDENCE.LOW;
+
+  // Calculate key metrics
+  const avgTxSize = token.volume24h / ((token.txns?.h24?.buys ?? 0) + (token.txns?.h24?.sells ?? 0) || 1);
+  const buyRatio = token.buyRatio ?? 0;
+  const volLiqRatio = token.volume24h / token.liquidity;
+
+  // Detect whale accumulation
+  if (avgTxSize > SMART_MONEY.THRESHOLDS.WHALE_ENTRY && buyRatio > SMART_MONEY.THRESHOLDS.ACCUMULATION.MIN_BUY_RATIO) {
+    insights.push('🐋 Smart Money Accumulation Detected');
+    insights.push(`  • Large buys averaging $${avgTxSize.toFixed(0)}`);
+    insights.push(`  • Strong buy ratio: ${(buyRatio * 100).toFixed(1)}%`);
+    confidence = SMART_MONEY.SIGNALS.CONFIDENCE.HIGH;
+  }
+
+  // Detect institutional buying
+  if (avgTxSize > SMART_MONEY.THRESHOLDS.LARGE_TX && 
+      volLiqRatio > 1.5 && 
+      buyRatio > 0.6) {
+    insights.push('🏛️ Institutional Buying Pattern');
+    insights.push(`  • Average position size: $${avgTxSize.toFixed(0)}`);
+    insights.push(`  • Volume ${volLiqRatio.toFixed(1)}x liquidity`);
+    confidence = Math.max(confidence, SMART_MONEY.SIGNALS.CONFIDENCE.MEDIUM);
+  }
+
+  // Detect distribution
+  if (avgTxSize > SMART_MONEY.THRESHOLDS.LARGE_TX && 
+      buyRatio < SMART_MONEY.THRESHOLDS.DISTRIBUTION.MAX_BUY_RATIO &&
+      volLiqRatio > SMART_MONEY.THRESHOLDS.DISTRIBUTION.VOLUME_SPIKE) {
+    insights.push('⚠️ Smart Money Distribution');
+    insights.push(`  • Large sells detected`);
+    insights.push(`  • Heavy selling pressure: ${((1 - buyRatio) * 100).toFixed(1)}% sells`);
+    confidence = SMART_MONEY.SIGNALS.CONFIDENCE.HIGH;
+  }
+
+  return { insights, confidence };
+};
+
+// Update analyzeTradingSignals to include smart money analysis
 const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
   const { classification, reasons: maturityReasons } = analyzeTokenMaturity(token);
   const volumeInsights = analyzeVolumeTrends(token);
+  const patterns = detectPatterns(token);
+  const { insights: smartMoneyInsights, confidence: smartMoneyConfidence } = analyzeSmartMoney(token);
   const safetyIssues = analyzeSafetyMetrics(token);
   const exitSignals = getExitSignals(token);
   const marketCapWarnings = analyzeMarketCap(token);
@@ -547,9 +662,36 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
     factors: riskFactors
   });
 
+  const entryStrategy = calculateEntryStrategy(token);
   const strategy = suggestStrategy(token);
   
+  const timeWindow = analyzeTimeWindow();
+  const momentumSustainability = analyzeMomentumSustainability(token);
+  
+  // Adjust position sizing based on time window
+  if (entryStrategy.recommendation === 'SCALE_IN') {
+    entryStrategy.sizing = {
+      initial: entryStrategy.sizing.initial * timeWindow.volatilityMultiplier,
+      secondary: entryStrategy.sizing.secondary * timeWindow.volatilityMultiplier,
+      final: entryStrategy.sizing.final * timeWindow.volatilityMultiplier
+    };
+  }
+
+  // Add time-based insights
+  const timeBasedInsights = [
+    timeWindow.isPeakHour ? '⏰ Peak trading hours - good liquidity expected' :
+    timeWindow.isQuietHour ? '💤 Quiet trading period - consider waiting' :
+    '👍 Normal trading hours',
+    
+    momentumSustainability.isSustained
+      ? `🌊 Strong momentum ${momentumSustainability.timeQualifier}`
+      : '⚠️ Recent movement - await confirmation'
+  ];
+
   const allWarnings = [
+    ...timeBasedInsights,
+    ...patterns,
+    ...smartMoneyInsights,
     ...maturityReasons,
     ...volumeInsights,
     ...safetyIssues,
@@ -558,7 +700,8 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
     ...whaleWarnings,
     ...priceActionInsights,
     ...riskFactors.map(f => `  • ${f}`),
-    ...strategy.reasoning
+    ...strategy.reasoning,
+    ...entryStrategy.reasoning  // Add entry strategy insights
   ];
 
   // Calculate signal strength
@@ -608,6 +751,9 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
     confidence = 65;
   }
 
+  // Adjust confidence based on all signals
+  confidence = Math.max(confidence, smartMoneyConfidence);
+
   return {
     signal,
     confidence,
@@ -615,6 +761,11 @@ const analyzeTradingSignals = (token: TokenMetrics): TradingSignal => {
     score: riskScore,
     strategy: strategy.recommendation,
     priceTargets: strategy.targets,
+    entryPlan: {              // Add entry plan
+      recommendation: entryStrategy.recommendation,
+      sizing: entryStrategy.sizing,
+      entry: entryStrategy.entry
+    },
     indicators: {
       buyPressure: {
         value: buyRatio,
@@ -769,4 +920,131 @@ const detectWhaleActivity = (token: TokenMetrics): string[] => {
   }
 
   return warnings;
+};
+
+const calculateEntryStrategy = (token: TokenMetrics): {
+  recommendation: string;
+  entry: number;
+  sizing: {
+    initial: number;
+    secondary: number;
+    final: number;
+  };
+  reasoning: string[];
+} => {
+  const reasoning: string[] = [];
+  const { SCALING, CONDITIONS } = ENTRY_STRATEGY;
+  
+  // Check if conditions are right for entry
+  if (
+    token.liquidity >= CONDITIONS.INITIAL.MIN_LIQUIDITY &&
+    (token.buyRatio ?? 0) >= CONDITIONS.INITIAL.MIN_BUY_RATIO &&
+    Math.abs(token.priceChange24h) <= CONDITIONS.INITIAL.MAX_VOLATILITY
+  ) {
+    const maxPositionUsd = Math.min(token.liquidity * 0.01, 10000); // 1% of liquidity or $10k max
+    
+    return {
+      recommendation: 'SCALE_IN',
+      entry: token.price,
+      sizing: {
+        initial: maxPositionUsd * SCALING.INITIAL,
+        secondary: maxPositionUsd * SCALING.SECONDARY,
+        final: maxPositionUsd * SCALING.FINAL
+      },
+      reasoning: [
+        '🎯 Conditions favorable for scaled entry:',
+        `  • Initial Buy: $${(maxPositionUsd * SCALING.INITIAL).toFixed(0)}`,
+        `  • Second Buy: $${(maxPositionUsd * SCALING.SECONDARY).toFixed(0)} on ${CONDITIONS.ADD.PRICE_DIP}% dip`,
+        `  • Final Buy: $${(maxPositionUsd * SCALING.FINAL).toFixed(0)} on momentum confirmation`
+      ]
+    };
+  }
+  
+  return {
+    recommendation: 'WAIT',
+    entry: token.price,
+    sizing: { initial: 0, secondary: 0, final: 0 },
+    reasoning: ['⏳ Wait for better entry conditions']
+  };
+};
+
+export const createSignalSummary = (token: TokenMetrics): {
+  verdict: string;
+  score: number;
+  bullishFactors: string[];
+  bearishFactors: string[];
+  keyMetrics: {
+    price: string;
+    buyPressure: string;
+    volume: string;
+    liquidity: string;
+    marketCap: string;
+  };
+  tradingPlan?: {
+    entry: string;
+    target: string;
+    stopLoss: string;
+    position: string;
+  };
+} => {
+  const bullishFactors: string[] = [];
+  const bearishFactors: string[] = [];
+  
+  // Categorize existing signals
+  const buyRatio = token.buyRatio ?? 0;
+  const volLiqRatio = token.volume24h / token.liquidity;
+  const acceleration = token.hourlyAcceleration ?? 0;
+
+  // Add Bullish Factors
+  if (buyRatio > 0.65) {
+    bullishFactors.push(`🔥 Strong buy pressure (${(buyRatio * 100).toFixed(1)}% buys)`);
+  }
+  if (volLiqRatio > 2) {
+    bullishFactors.push(`📈 High volume (${volLiqRatio.toFixed(1)}x liquidity)`);
+  }
+  if (acceleration > 15) {
+    bullishFactors.push(`🚀 Strong momentum (${acceleration.toFixed(1)}% acceleration)`);
+  }
+
+  // Add Bearish Factors
+  if (token.liquidity < 250_000) {
+    bearishFactors.push(`💧 Low liquidity ($${(token.liquidity / 1000).toFixed(1)}k)`);
+  }
+  if (token.priceChange24h > 100) {
+    bearishFactors.push(`⚠️ Overheated (+${token.priceChange24h.toFixed(1)}% in 24h)`);
+  }
+  if ((token.marketCap ?? 0) < 1_000_000) {
+    bearishFactors.push(`⚠️ Very low market cap ($${((token.marketCap ?? 0) / 1000).toFixed(1)}k)`);
+  }
+
+  // Calculate overall verdict
+  const bullishCount = bullishFactors.length;
+  const bearishCount = bearishFactors.length;
+  const verdict = bullishCount > bearishCount * 2 ? 'STRONG_BUY' :
+                 bullishCount > bearishCount ? 'MODERATE_BUY' :
+                 bearishCount > bullishCount * 2 ? 'AVOID' :
+                 bearishCount > bullishCount ? 'CAUTION' : 'NEUTRAL';
+
+  // Calculate trading plan if verdict is positive
+  const tradingPlan = (verdict === 'STRONG_BUY' || verdict === 'MODERATE_BUY') ? {
+    entry: `$${token.price.toFixed(8)}`,
+    target: `$${(token.price * 1.45).toFixed(8)}`,
+    stopLoss: `$${(token.price * 0.85).toFixed(8)}`,
+    position: `$${Math.min(token.liquidity * 0.01, 10000).toFixed(0)}`
+  } : undefined;
+
+  return {
+    verdict,
+    score: (bullishCount * 20) - (bearishCount * 15) + 50, // Base 50, adjust up/down
+    bullishFactors,
+    bearishFactors,
+    keyMetrics: {
+      price: `$${token.price.toFixed(8)}`,
+      buyPressure: `${(buyRatio * 100).toFixed(1)}%`,
+      volume: `$${(token.volume24h / 1000).toFixed(1)}k`,
+      liquidity: `$${(token.liquidity / 1000).toFixed(1)}k`,
+      marketCap: `$${((token.marketCap ?? 0) / 1000).toFixed(1)}k`
+    },
+    tradingPlan
+  };
 }; 
