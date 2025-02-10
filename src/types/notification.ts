@@ -1,8 +1,15 @@
-export type NotificationType = 'ENTRY' | 'EXIT' | 'ALERT' | 'STOP_LOSS' | 'TAKE_PROFIT';
+export type NotificationType = 
+  | 'SUCCESS'
+  | 'WARNING'
+  | 'ERROR'
+  | 'INFO'
+  | 'ENTRY'
+  | 'EXIT'
+  | 'ALERT';
 
 export interface Notification {
   type: NotificationType;
   message: string;
+  priority: 'low' | 'medium' | 'high';
   timestamp: Date;
-  importance: 'high' | 'medium' | 'low';
 } 

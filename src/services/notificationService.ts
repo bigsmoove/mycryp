@@ -1,29 +1,24 @@
-type NotificationType = 'ENTRY' | 'EXIT' | 'ALERT' | 'STOP_LOSS' | 'TAKE_PROFIT';
-
-interface Notification {
-  type: NotificationType;
-  message: string;
-  timestamp: Date;
-  importance: 'high' | 'medium' | 'low';
-}
+import { NotificationType, Notification } from '../types/notification';
 
 export class NotificationService {
-  private notifications: Notification[] = [];
   private subscribers: ((notification: Notification) => void)[] = [];
 
-  notify(type: NotificationType, message: string, importance: 'high' | 'medium' | 'low' = 'medium') {
-    const notification = {
+  public notify(
+    type: NotificationType,
+    message: string,
+    priority: 'low' | 'medium' | 'high'
+  ): void {
+    const notification: Notification = {
       type,
       message,
-      timestamp: new Date(),
-      importance
+      priority,
+      timestamp: new Date()
     };
 
-    this.notifications.push(notification);
     this.subscribers.forEach(subscriber => subscriber(notification));
   }
 
-  subscribe(callback: (notification: Notification) => void) {
+  public subscribe(callback: (notification: Notification) => void): () => void {
     this.subscribers.push(callback);
     return () => {
       this.subscribers = this.subscribers.filter(sub => sub !== callback);

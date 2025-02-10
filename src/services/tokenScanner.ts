@@ -1,6 +1,7 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import axios from 'axios';
-import { SOLANA_RPC_ENDPOINT, DEXSCREENER_API, SAFETY_THRESHOLDS, BLACKLISTED_PATTERNS } from '../config/constants';
+import { SOLANA_RPC_ENDPOINT, DEXSCREENER_API, SAFETY_THRESHOLDS, BLACKLISTED_PATTERNS, TRADING_RULES } from '../config/constants';
+import { TokenMetrics } from '../types/token';
 
 interface TokenSafetyCheck {
   isSecure: boolean;
@@ -236,5 +237,128 @@ export class TokenScanner {
       console.error('Error fetching pair data:', error);
       return null;
     }
+  }
+}
+
+export class TokenTrader {
+  private static validateEntry(token: TokenMetrics): {
+    isValid: boolean;
+    reasons: string[];
+  } {
+    const reasons: string[] = [];
+    const { REQUIRED, SMART_MONEY, MOMENTUM } = TRADING_RULES.ENTRY;
+
+    // Basic Safety Checks
+    if (token.liquidity < REQUIRED.MIN_LIQUIDITY) {
+      reasons.push(`❌ Low liquidity: $${token.liquidity}`);
+    }
+    
+    if ((token.txns?.h24?.buys ?? 0) < REQUIRED.MIN_TRANSACTIONS) {
+      reasons.push('❌ Too few transactions - possible fake volume');
+    }
+
+    // Smart Money Analysis
+    const buyRatio = token.buyRatio ?? 0;
+    const volLiqRatio = token.volume24h / token.liquidity;
+    
+    if (buyRatio < REQUIRED.MIN_BUY_PRESSURE) {
+      reasons.push(`❌ Weak buy pressure: ${(buyRatio * 100).toFixed(1)}%`);
+    }
+
+    if (volLiqRatio < REQUIRED.MIN_VOL_LIQ_RATIO) {
+      reasons.push(`❌ Low volume/liquidity: ${volLiqRatio.toFixed(1)}x`);
+    }
+
+    // Momentum Checks
+    const acceleration = token.hourlyAcceleration ?? 0;
+    if (acceleration < MOMENTUM.MIN_ACCELERATION) {
+      reasons.push(`❌ Weak momentum: ${acceleration.toFixed(1)}%`);
+    }
+    if (acceleration > MOMENTUM.MAX_ACCELERATION) {
+      reasons.push(`❌ Overheated: ${acceleration.toFixed(1)}%`);
+    }
+
+    // Price Movement
+    if (token.priceChange24h > REQUIRED.MAX_PRICE_INCREASE) {
+      reasons.push(`❌ Already pumped ${token.priceChange24h}% - too late`);
+    }
+
+    return {
+      isValid: reasons.length === 0,
+      reasons
+    };
+  }
+
+  private static calculatePosition(token: TokenMetrics): {
+    initialSize: number;
+    finalSize: number;
+    entry: number;
+    stopLoss: number;
+    targets: number[];
+  } {
+    const { POSITION, EXIT } = TRADING_RULES;
+    
+    // Calculate safe position size
+    const maxPosition = token.liquidity * POSITION.MAX_SIZE;
+    const initialSize = maxPosition * POSITION.SCALING.INITIAL;
+    const finalSize = maxPosition * POSITION.SCALING.FINAL;
+
+    // Set entry, stops and targets
+    const entry = token.price;
+    const stopLoss = entry * EXIT.STOP_LOSS.INITIAL;
+    const targets = EXIT.TAKE_PROFIT.map(tp => 
+      entry * (1 + tp.AT_PROFIT)
+    );
+
+    return {
+      initialSize,
+      finalSize,
+      entry,
+      stopLoss,
+      targets
+    };
+  }
+
+  public static async analyzeTrade(token: TokenMetrics): Promise<{
+    shouldEnter: boolean;
+    tradingPlan?: {
+      entry: number;
+      size: number;
+      stopLoss: number;
+      targets: number[];
+      reasons: string[];
+    };
+    warnings: string[];
+  }> {
+    // Validate entry conditions
+    const { isValid, reasons } = this.validateEntry(token);
+    
+    if (!isValid) {
+      return {
+        shouldEnter: false,
+        warnings: reasons
+      };
+    }
+
+    // Calculate position if valid
+    const plan = this.calculatePosition(token);
+    
+    const bullishReasons = [
+      `✅ Strong buy pressure: ${(token.buyRatio ?? 0 * 100).toFixed(1)}%`,
+      `✅ High volume: ${(token.volume24h / token.liquidity).toFixed(1)}x liquidity`,
+      `✅ Good momentum: ${token.hourlyAcceleration}% acceleration`
+    ];
+
+    return {
+      shouldEnter: true,
+      tradingPlan: {
+        entry: plan.entry,
+        size: plan.initialSize,
+        stopLoss: plan.stopLoss,
+        targets: plan.targets,
+        reasons: bullishReasons
+      },
+      warnings: [`⚠️ Use max position size: $${plan.initialSize.toFixed(0)}`]
+    };
   }
 } 

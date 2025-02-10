@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TokenScanner } from '../services/tokenScanner';
+import { TokenScanner, TokenTrader } from '../services/tokenScanner';
 import { fetchTrendingTokens, createSignalSummary } from '../services/dexScreenerService';
 import TokenDetails from '../components/TokenDetails';
 import type { TrendingToken, SignalStrength } from '../types/token';
@@ -13,6 +13,7 @@ import type { Position } from '../types/position';
 import type { Notification } from '../types/notification';
 import { RISK_SCORE } from '../config/constants';
 import classNames from 'classnames';
+import TradeModal from '../components/TradeModal';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
@@ -24,6 +25,14 @@ export default function Home() {
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [positions, setPositions] = useState<Map<string, Position>>(new Map());
+  const [tradeDetails, setTradeDetails] = useState<any>(null);
+  const [tradeModal, setTradeModal] = useState<{
+    isOpen: boolean;
+    details: any;
+  }>({
+    isOpen: false,
+    details: null
+  });
 
   const notificationService = new NotificationService();
   const positionTracker = PositionTracker.getInstance();
@@ -51,7 +60,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = notificationService.subscribe((notification) => {
+    const unsubscribe = notificationService.subscribe((notification: Notification) => {
       setNotifications(prev => [notification, ...prev].slice(0, 10));
     });
 
@@ -92,8 +101,35 @@ export default function Home() {
   const TokenCard = ({ token }: { token: TrendingToken }) => {
     const summary = createSignalSummary(token);
 
+    const handleQuickTrade = async () => {
+      console.log('Quick Trade clicked');
+      const analysis = await TokenTrader.analyzeTrade(token);
+      console.log('Analysis:', analysis);
+      
+      if (analysis.shouldEnter && analysis.tradingPlan) {
+        console.log('Setting trade modal with details:', {
+          token,
+          ...analysis.tradingPlan
+        });
+        setTradeModal({
+          isOpen: true,
+          details: {
+            token,
+            ...analysis.tradingPlan
+          }
+        });
+      } else {
+        console.log('Trade not recommended:', analysis.warnings);
+        notificationService.notify(
+          'ALERT',
+          analysis.warnings.join('\n'),
+          'high'
+        );
+      }
+    };
+
     return (
-      <div className="p-4 border rounded-lg bg-gray-800/50">
+      <div className="p-4 border rounded-lg bg-gradient-to-b from-gray-800/50 to-gray-900/50">
         {/* Header with Name and Status */}
         <div className="flex justify-between items-center mb-3">
           <div>
@@ -123,18 +159,18 @@ export default function Home() {
         </div>
 
         {/* Key Metrics Row */}
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-3 gap-4 mb-6">
           <div>
-            <div className="text-gray-400 text-sm">Buy Pressure</div>
-            <div className="text-lg font-mono">{summary.keyMetrics.buyPressure}</div>
+            <div className="text-gray-400">Buy Pressure</div>
+            <div className="text-xl font-mono">{summary.keyMetrics.buyPressure}</div>
           </div>
           <div>
-            <div className="text-gray-400 text-sm">Vol/Liq Ratio</div>
-            <div className="text-lg font-mono">{(token.volume24h / token.liquidity).toFixed(2)}x</div>
+            <div className="text-gray-400">Vol/Liq Ratio</div>
+            <div className="text-xl font-mono">{(token.volume24h / token.liquidity).toFixed(2)}x</div>
           </div>
           <div>
-            <div className="text-gray-400 text-sm">Price</div>
-            <div className="text-lg font-mono">${token.price.toFixed(8)}</div>
+            <div className="text-gray-400">Price</div>
+            <div className="text-xl font-mono">${token.price.toFixed(8)}</div>
           </div>
         </div>
 
@@ -161,6 +197,16 @@ export default function Home() {
           <div className={token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}>
             24h Change: {token.priceChange24h.toFixed(2)}%
           </div>
+        </div>
+
+        {/* Add margin-top to separate from stats */}
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={handleQuickTrade}
+            className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded font-semibold text-white transition-colors"
+          >
+            Quick Trade
+          </button>
         </div>
       </div>
     );
@@ -276,6 +322,22 @@ export default function Home() {
         <TokenDetails
           tokenAddress={selectedToken}
           onClose={() => setSelectedToken(null)}
+        />
+      )}
+
+      {tradeModal.isOpen && (
+        <TradeModal
+          isOpen={tradeModal.isOpen}
+          onClose={() => {
+            console.log('Closing modal');
+            setTradeModal({ isOpen: false, details: null });
+          }}
+          tradeDetails={tradeModal.details}
+          onExecute={() => {
+            console.log('Executing trade');
+            handleAddPosition(tradeModal.details.token, tradeModal.details.size);
+            setTradeModal({ isOpen: false, details: null });
+          }}
         />
       )}
 

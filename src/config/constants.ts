@@ -281,4 +281,66 @@ export const TIME_ANALYSIS = {
     MIN_SUSTAINED_MINS: 30,  // Minimum time for trend confirmation
     ACCELERATION_THRESHOLD: 15  // % change in momentum
   }
+};
+
+export const TRADING_RULES = {
+  ENTRY: {
+    REQUIRED: {
+      MIN_BUY_PRESSURE: 0.65,      // Increased from 0.60 - want strong buying
+      MIN_VOL_LIQ_RATIO: 2,        // Keep 2x minimum for adequate volume
+      MIN_LIQUIDITY: 100_000,      // Increased from 50k - safer liquidity
+      MAX_PRICE_INCREASE: 150,     // Lowered from 200 - don't chase too high
+      MIN_TRANSACTIONS: 75,        // Increased from 50 - more validation
+      MAX_SINGLE_WALLET: 0.05,     // Max 5% in single wallet
+      MIN_HOLDERS: 100             // Minimum unique holders
+    },
+    SMART_MONEY: {
+      MIN_AVG_TRANSACTION: 1000,   // $1k minimum avg transaction
+      WHALE_BUYING: true,          // Must see institutional buying
+      NO_LARGE_SELLS: true,        // No recent large sells
+      ACCUMULATION_TIME: 30        // Minutes of accumulation
+    },
+    MOMENTUM: {
+      MIN_ACCELERATION: 25,        // Steady growth
+      MAX_ACCELERATION: 150,       // Not too parabolic
+      SUSTAINED_MINUTES: 15        // Must hold momentum
+    }
+  },
+  EXIT: {
+    TAKE_PROFIT: [
+      { PERCENT: 0.3, AT_PROFIT: 0.20 },  // Take 30% off at 20% profit
+      { PERCENT: 0.4, AT_PROFIT: 0.35 },  // Take 40% off at 35% profit
+      { PERCENT: 0.3, AT_PROFIT: 0.50 }   // Take final 30% at 50% profit
+    ],
+    STOP_LOSS: {
+      INITIAL: 0.93,              // Tighter 7% stop loss
+      TRAILING: 0.95              // 5% trailing stop in profit
+    },
+    EMERGENCY: {
+      MAX_PRICE_DROP: 5,          // Tightened from 7% to 5%
+      MIN_BUY_PRESSURE: 0.40,     // Exit if buying dies
+      LIQUIDITY_DROP: 0.30        // Exit if liquidity drops 30%
+    }
+  },
+  POSITION: {
+    MAX_SIZE: 0.005,              // Reduced from 0.01 - more conservative
+    SCALING: {
+      INITIAL: 0.4,               // Start smaller
+      FINAL: 0.6                  // Add more on confirmation
+    }
+  },
+  RUG_PROTECTION: {
+    MIN_TIME_LOCKED: 48,          // Increased from 24h to 48h
+    MAX_OWNER_WALLET: 0.03,       // Reduced from 5% to 3%
+    BLACKLIST: [
+      'MINT',
+      'WHITELIST',
+      'TAX',
+      'BLACKLIST',
+      'PAUSE',                    // Added more suspicious functions
+      'EXCLUDE',
+      'REWARD',
+      'REBASE'
+    ]
+  }
 }; 

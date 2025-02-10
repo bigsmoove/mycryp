@@ -88,4 +88,23 @@ export interface TrendingToken {
       sells: number;
     };
   };
+}
+
+export interface TokenMetrics {
+  address: string;
+  name: string;
+  symbol: string;
+  price: number;
+  liquidity: number;
+  volume24h: number;
+  priceChange24h: number;
+  marketCap?: number;
+  buyRatio?: number;
+  hourlyAcceleration?: number;
+  txns?: {
+    h24?: {
+      buys: number;
+      sells: number;
+    };
+  };
 } 
