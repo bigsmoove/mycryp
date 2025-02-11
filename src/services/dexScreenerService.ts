@@ -1047,4 +1047,17 @@ export const createSignalSummary = (token: TokenMetrics): {
     },
     tradingPlan
   };
-}; 
+};
+
+export async function fetchTokenPrice(tokenAddress: string): Promise<number | null> {
+  try {
+    const response = await axios.get(`${DEXSCREENER_API}/latest/dex/tokens/${tokenAddress}`);
+    if (response.data?.pairs?.[0]?.priceUsd) {
+      return parseFloat(response.data.pairs[0].priceUsd);
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching token price:', error);
+    return null;
+  }
+} 

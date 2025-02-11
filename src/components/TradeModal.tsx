@@ -1,4 +1,5 @@
 import { TokenMetrics } from '../types/token';
+import { RiskAnalysis } from '../services/riskAnalyzer';
 
 interface TradeModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface TradeModalProps {
     stopLoss: number;
     targets: number[];
     reasons: string[];
+    risk: RiskAnalysis;
   };
   onExecute: () => void;
 }
@@ -17,7 +19,7 @@ interface TradeModalProps {
 export default function TradeModal({ isOpen, onClose, tradeDetails, onExecute }: TradeModalProps) {
   if (!isOpen) return null;
 
-  const { token, entry, size, stopLoss, targets, reasons } = tradeDetails;
+  const { token, entry, size, stopLoss, targets, reasons, risk } = tradeDetails;
   const riskAmount = (entry - stopLoss) * (size / entry);
   const potentialProfit = (targets[targets.length - 1] - entry) * (size / entry);
 
@@ -25,6 +27,28 @@ export default function TradeModal({ isOpen, onClose, tradeDetails, onExecute }:
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
       <div className="bg-gray-800 p-6 rounded-lg max-w-2xl w-full mx-4">
         <h2 className="text-xl font-bold mb-4">Trade Analysis: {token.name}</h2>
+
+        {/* Risk Analysis Section */}
+        <div className="mb-6">
+          <h3 className="text-yellow-400 font-bold mb-2">Risk Analysis</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-gray-400">Risk/Reward</div>
+              <div className="font-mono">{risk.riskRewardRatio.toFixed(2)}x</div>
+            </div>
+            <div>
+              <div className="text-gray-400">Portfolio Exposure</div>
+              <div className="font-mono">{(risk.exposure * 100).toFixed(1)}%</div>
+            </div>
+          </div>
+          {risk.warnings.length > 0 && (
+            <div className="mt-2 text-yellow-500 text-sm">
+              {risk.warnings.map((warning, i) => (
+                <div key={i}>{warning}</div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Entry Analysis */}
         <div className="mb-6">

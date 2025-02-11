@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { TokenScanner, TokenTrader } from '../services/tokenScanner';
-import { fetchTrendingTokens, createSignalSummary } from '../services/dexScreenerService';
+import { fetchTrendingTokens, createSignalSummary, fetchTokenPrice } from '../services/dexScreenerService';
 import TokenDetails from '../components/TokenDetails';
 import type { TrendingToken, SignalStrength } from '../types/token';
 import { NotificationService } from '../services/notificationService';
@@ -14,6 +14,10 @@ import type { Notification } from '../types/notification';
 import { RISK_SCORE } from '../config/constants';
 import classNames from 'classnames';
 import TradeModal from '../components/TradeModal';
+import { PositionManager } from '../services/positionManager';
+import { RiskAnalyzer } from '../services/riskAnalyzer';
+import { WatchlistManager } from '../services/watchlistManager';
+import WatchlistPanel from '../components/WatchlistPanel';
 
 export default function Home() {
   const [tokenAddress, setTokenAddress] = useState('');
@@ -33,9 +37,14 @@ export default function Home() {
     isOpen: false,
     details: null
   });
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
 
   const notificationService = new NotificationService();
   const positionTracker = PositionTracker.getInstance();
+  const positionManager = PositionManager.getInstance();
+  const riskAnalyzer = RiskAnalyzer.getInstance();
+  const watchlistManager = WatchlistManager.getInstance();
 
   useEffect(() => {
     const loadTrendingTokens = async () => {
@@ -55,9 +64,16 @@ export default function Home() {
     };
 
     loadTrendingTokens();
-    const interval = setInterval(loadTrendingTokens, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    
+    let interval: NodeJS.Timeout | null = null;
+    if (autoRefresh) {
+      interval = setInterval(loadTrendingTokens, 30000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autoRefresh]);
 
   useEffect(() => {
     const unsubscribe = notificationService.subscribe((notification: Notification) => {
@@ -65,6 +81,52 @@ export default function Home() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // Update prices every 10 seconds
+    const interval = setInterval(async () => {
+      // Update positions
+      const positions = positionManager.getAllPositions();
+      for (const position of positions) {
+        try {
+          const updatedPrice = await fetchTokenPrice(position.tokenAddress);
+          if (updatedPrice) {
+            positionManager.updatePrice(position.tokenAddress, updatedPrice);
+          }
+        } catch (error) {
+          console.error('Error updating position price:', error);
+        }
+      }
+
+      // Update watchlist
+      const watchlistItems = watchlistManager.getWatchlist();
+      for (const item of watchlistItems) {
+        try {
+          const updatedPrice = await fetchTokenPrice(item.token.address);
+          if (updatedPrice) {
+            watchlistManager.updatePrice(item.token.address, updatedPrice);
+          }
+        } catch (error) {
+          console.error('Error updating watchlist price:', error);
+        }
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const updateWatchlist = () => {
+      setWatchlistItems(watchlistManager.getWatchlist());
+    };
+
+    // Initial load
+    updateWatchlist();
+
+    // Update every 5 seconds
+    const interval = setInterval(updateWatchlist, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleScan = async (address: string) => {
@@ -107,15 +169,23 @@ export default function Home() {
       console.log('Analysis:', analysis);
       
       if (analysis.shouldEnter && analysis.tradingPlan) {
+        const riskAnalysis = riskAnalyzer.analyzeRisk(
+          token,
+          positionManager.getAllPositions()
+        );
+
         console.log('Setting trade modal with details:', {
           token,
-          ...analysis.tradingPlan
+          ...analysis.tradingPlan,
+          risk: riskAnalysis
         });
+
         setTradeModal({
           isOpen: true,
           details: {
             token,
-            ...analysis.tradingPlan
+            ...analysis.tradingPlan,
+            risk: riskAnalysis
           }
         });
       } else {
@@ -200,10 +270,27 @@ export default function Home() {
         </div>
 
         {/* Add margin-top to separate from stats */}
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={() => {
+              console.log('Adding to watchlist:', token);
+              const watchlistItem = watchlistManager.addToWatchlist(token);
+              console.log('Added watchlist item:', watchlistItem);
+              notificationService.notify(
+                'INFO',
+                `Added ${token.name} to watchlist`,
+                'low'
+              );
+              // Force a re-render
+              setTrendingTokens([...trendingTokens]);
+            }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+          >
+            Add to Watchlist
+          </button>
           <button
             onClick={handleQuickTrade}
-            className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded font-semibold text-white transition-colors"
+            className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded font-semibold text-white"
           >
             Quick Trade
           </button>
@@ -223,9 +310,27 @@ export default function Home() {
         <div className="mb-8 bg-gray-800 p-6 rounded-lg shadow-lg">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-white">Trending Tokens</h2>
-            <span className="text-sm text-gray-400">
-              Auto-refreshes every 30s
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">
+                Auto-refresh {autoRefresh ? 'enabled' : 'disabled'}
+              </span>
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`
+                  relative inline-flex h-6 w-11 items-center rounded-full
+                  transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2
+                  ${autoRefresh ? 'bg-indigo-600' : 'bg-gray-600'}
+                `}
+              >
+                <span className="sr-only">Toggle auto-refresh</span>
+                <span
+                  className={`
+                    inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                    ${autoRefresh ? 'translate-x-6' : 'translate-x-1'}
+                  `}
+                />
+              </button>
+            </div>
           </div>
           
           {apiError ? (
@@ -298,20 +403,27 @@ export default function Home() {
           )}
         </div>
 
-        <div className="mt-8 grid grid-cols-1 gap-6">
+        <div className="grid grid-cols-1 gap-6 mt-8">
           <PositionTrackerPanel 
-            positions={positions} 
+            positions={positionManager.getAllPositions()}
             onClosePosition={(address) => {
-              const position = positions.get(address);
-              if (position) {
-                notificationService.notify(
-                  'EXIT',
-                  `Closed position for ${address}`,
-                  'medium'
-                );
-                positions.delete(address);
-                setPositions(new Map(positions));
-              }
+              positionManager.closePosition(address);
+            }}
+          />
+          
+          <WatchlistPanel
+            items={watchlistItems}
+            onRemove={(address) => {
+              watchlistManager.removeFromWatchlist(address);
+              setWatchlistItems(watchlistManager.getWatchlist());
+            }}
+            onAddAlert={(address, price, type) => {
+              watchlistManager.addPriceAlert(address, price, type);
+              setWatchlistItems(watchlistManager.getWatchlist());
+            }}
+            onAddNote={(address, note) => {
+              watchlistManager.addNote(address, note);
+              setWatchlistItems(watchlistManager.getWatchlist());
             }}
           />
         </div>
